@@ -1,0 +1,200 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 016e743..978680f 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -388,3 +388,18 @@ if(realsense2_FOUND)
+             Examples_old/Stereo-Inertial/stereo_inertial_realsense_D435i.cc)
+     target_link_libraries(stereo_inertial_realsense_D435i_old ${PROJECT_NAME})
+ endif()
++
++add_executable(live_mono
++    Examples/Live/live_mono.cc
++)
++
++target_link_libraries(live_mono
++    ${PROJECT_NAME}
++    ${OpenCV_LIBS}
++    ${EIGEN3_LIBS}
++    ${Pangolin_LIBRARIES}
++    ${PROJECT_SOURCE_DIR}/Thirdparty/DBoW2/lib/libDBoW2.so
++    ${PROJECT_SOURCE_DIR}/Thirdparty/g2o/lib/libg2o.so
++    -lboost_serialization
++    -lcrypto
++)
+diff --git a/src/MapDrawer.cc b/src/MapDrawer.cc
+index 2ff8fae..a9fe3d7 100644
+--- a/src/MapDrawer.cc
++++ b/src/MapDrawer.cc
+@@ -1,3 +1,4 @@
++#include <cmath>
+ /**
+ * This file is part of ORB-SLAM3
+ *
+@@ -397,47 +398,140 @@ void MapDrawer::DrawKeyFrames(const bool bDrawKF, const bool bDrawGraph, const b
+ 
+ void MapDrawer::DrawCurrentCamera(pangolin::OpenGlMatrix &Twc)
+ {
+-    const float &w = mCameraSize;
+-    const float h = w*0.75;
+-    const float z = w*0.6;
++    // Draw a small wireframe quadcopter at the current SLAM camera pose.
++    // The marker follows the real pose estimated by ORB-SLAM3.
++    const float s = mCameraSize;
++    const float arm = s * 1.8f;
++    const float body = s * 0.42f;
++    const float bodyHeight = s * 0.22f;
++    const float rotorRadius = s * 0.38f;
++    const float rotorHeight = s * 0.08f;
++    const int rotorSegments = 24;
+ 
+     glPushMatrix();
+ 
+ #ifdef HAVE_GLES
+-        glMultMatrixf(Twc.m);
++    glMultMatrixf(Twc.m);
+ #else
+-        glMultMatrixd(Twc.m);
++    glMultMatrixd(Twc.m);
+ #endif
+ 
+     glLineWidth(mCameraLineWidth);
+-    glColor3f(0.0f,1.0f,0.0f);
++
++    // Central drone body.
++    glColor3f(1.0f, 0.65f, 0.0f);
+     glBegin(GL_LINES);
+-    glVertex3f(0,0,0);
+-    glVertex3f(w,h,z);
+-    glVertex3f(0,0,0);
+-    glVertex3f(w,-h,z);
+-    glVertex3f(0,0,0);
+-    glVertex3f(-w,-h,z);
+-    glVertex3f(0,0,0);
+-    glVertex3f(-w,h,z);
+-
+-    glVertex3f(w,h,z);
+-    glVertex3f(w,-h,z);
+-
+-    glVertex3f(-w,h,z);
+-    glVertex3f(-w,-h,z);
+-
+-    glVertex3f(-w,h,z);
+-    glVertex3f(w,h,z);
+-
+-    glVertex3f(-w,-h,z);
+-    glVertex3f(w,-h,z);
++
++    // Bottom rectangle.
++    glVertex3f(-body, -body, -bodyHeight);
++    glVertex3f( body, -body, -bodyHeight);
++
++    glVertex3f( body, -body, -bodyHeight);
++    glVertex3f( body,  body, -bodyHeight);
++
++    glVertex3f( body,  body, -bodyHeight);
++    glVertex3f(-body,  body, -bodyHeight);
++
++    glVertex3f(-body,  body, -bodyHeight);
++    glVertex3f(-body, -body, -bodyHeight);
++
++    // Top rectangle.
++    glVertex3f(-body, -body, bodyHeight);
++    glVertex3f( body, -body, bodyHeight);
++
++    glVertex3f( body, -body, bodyHeight);
++    glVertex3f( body,  body, bodyHeight);
++
++    glVertex3f( body,  body, bodyHeight);
++    glVertex3f(-body,  body, bodyHeight);
++
++    glVertex3f(-body,  body, bodyHeight);
++    glVertex3f(-body, -body, bodyHeight);
++
++    // Vertical body edges.
++    glVertex3f(-body, -body, -bodyHeight);
++    glVertex3f(-body, -body,  bodyHeight);
++
++    glVertex3f( body, -body, -bodyHeight);
++    glVertex3f( body, -body,  bodyHeight);
++
++    glVertex3f( body,  body, -bodyHeight);
++    glVertex3f( body,  body,  bodyHeight);
++
++    glVertex3f(-body,  body, -bodyHeight);
++    glVertex3f(-body,  body,  bodyHeight);
++
++    glEnd();
++
++    // Four arms in an X arrangement.
++    glLineWidth(mCameraLineWidth * 1.5f);
++    glColor3f(0.1f, 0.9f, 0.2f);
++
++    glBegin(GL_LINES);
++
++    glVertex3f(0.0f, 0.0f, 0.0f);
++    glVertex3f( arm,  arm, 0.0f);
++
++    glVertex3f(0.0f, 0.0f, 0.0f);
++    glVertex3f(-arm,  arm, 0.0f);
++
++    glVertex3f(0.0f, 0.0f, 0.0f);
++    glVertex3f(-arm, -arm, 0.0f);
++
++    glVertex3f(0.0f, 0.0f, 0.0f);
++    glVertex3f( arm, -arm, 0.0f);
++
++    glEnd();
++
++    // Draw the four circular rotors.
++    const float rotorX[4] = { arm, -arm, -arm, arm };
++    const float rotorY[4] = { arm,  arm, -arm, -arm };
++
++    glLineWidth(mCameraLineWidth);
++    glColor3f(0.1f, 0.7f, 1.0f);
++
++    for(int rotor = 0; rotor < 4; ++rotor)
++    {
++        glBegin(GL_LINE_LOOP);
++
++        for(int i = 0; i < rotorSegments; ++i)
++        {
++            const float angle =
++                2.0f * 3.14159265358979323846f *
++                static_cast<float>(i) /
++                static_cast<float>(rotorSegments);
++
++            glVertex3f(
++                rotorX[rotor] + rotorRadius * std::cos(angle),
++                rotorY[rotor] + rotorRadius * std::sin(angle),
++                rotorHeight
++            );
++        }
++
++        glEnd();
++    }
++
++    // Red nose arrow showing the drone/camera forward direction.
++    // ORB-SLAM3 camera forward is the local positive Z direction.
++    glLineWidth(mCameraLineWidth * 2.0f);
++    glColor3f(1.0f, 0.1f, 0.1f);
++
++    glBegin(GL_LINES);
++
++    glVertex3f(0.0f, 0.0f, 0.0f);
++    glVertex3f(0.0f, 0.0f, arm * 1.3f);
++
++    glVertex3f(0.0f, 0.0f, arm * 1.3f);
++    glVertex3f( body, 0.0f, arm);
++
++    glVertex3f(0.0f, 0.0f, arm * 1.3f);
++    glVertex3f(-body, 0.0f, arm);
++
+     glEnd();
+ 
+     glPopMatrix();
+ }
+ 
+-
+ void MapDrawer::SetCurrentCameraPose(const Sophus::SE3f &Tcw)
+ {
+     unique_lock<mutex> lock(mMutexCamera);
