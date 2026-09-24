@@ -1,0 +1,15 @@
+.venv/
+__pycache__/
+*.pyc
+*.log
+core
+core.*
+build/
+*.so
+*.exe
+*.zip
+*.tgz
+*.mp4
+*.ply
+*Trajectory*.txt
+.env
