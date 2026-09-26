@@ -1,8 +1,29 @@
-# RUBIQX
+# RUBIQX · ARGUS
 
-**Search-and-rescue perception prototypes for SIH'26.** RUBIQX combines an occlusion-focused pedestrian-detection dataset, a disaster-detection model artifact, and a GPS-denied monocular SLAM proof of concept for rapid experimentation in rescue robotics.
+**ARGUS is an autonomous search-and-rescue drone concept for SIH'26 (Problem Statement 26177).** It detects survivors, including partly buried people, and hazards onboard, then alerts rescue teams directly over Wi-Fi, falling back to LoRa radio when there is no network.
 
-> **Current status:** research/prototype repository. The checked-in SLAM pipeline maps a laptop-camera stream with ORB-SLAM3; it does not fly a drone, detect survivors end-to-end, provide thermal sensing, or produce a dense 3D reconstruction.
+This repository holds the working prototypes: two trained detection models, an occlusion-focused dataset, a GPS-denied monocular SLAM proof of concept, and Blender visualisations of the mission.
+
+> **Current status:** research/prototype repository. The SLAM pipeline maps a laptop-camera stream with ORB-SLAM3; it does not fly a drone. The detection models are trained on a laptop GPU, not yet deployed on the drone. The Blender scenes are **simulations**, not flight footage. Thermal sensing, flight and dense 3D reconstruction are not implemented.
+
+## Project status
+
+| Capability | Status | Where |
+|---|---|---|
+| Hazard detection (fire, smoke, crack, person), YOLOv11 | ✅ Trained and validated | [`ml-models/`](ml-models/) |
+| Occluded-person detection, YOLOv11 on WiderPerson | ✅ Trained (metrics pending) | [`ml-models/`](ml-models/), [`occluded_dataset/`](occluded_dataset/) |
+| GPS-denied visual mapping, ORB-SLAM3 monocular | ✅ Demonstrated (laptop webcam) | [`SLAM/`](SLAM/) |
+| Mission visualisation (Blender) | ✅ Simulation only | [`simulation/blender/`](simulation/blender/) |
+| Onboard inference on Raspberry Pi 5 (ncnn) | 🔧 In development | [`docs/hardware_abstraction.md`](docs/hardware_abstraction.md) |
+| Wi-Fi alerts with LoRa fallback → Flutter rescue app | 🔧 In development | [`docs/alert_schema.md`](docs/alert_schema.md) |
+| Survivor location projection, priority score | 📋 Planned | [`docs/architecture.md`](docs/architecture.md) |
+| Thermal + acoustic sensing, autonomous flight, payload drop | 📋 Planned | [`docs/architecture.md`](docs/architecture.md) |
+
+## Documentation
+
+- [`docs/architecture.md`](docs/architecture.md): system diagram, mission state machine, survivor location, payload safety rule, and what the system is not
+- [`docs/hardware_abstraction.md`](docs/hardware_abstraction.md): each component from laptop prototype → simulation → prototype drone → field build
+- [`docs/alert_schema.md`](docs/alert_schema.md): the exact Wi-Fi and LoRa alert formats
 
 ## What is here
 
@@ -10,7 +31,9 @@
 |---|---|---|
 | [`SLAM/`](SLAM/) | Windows webcam → MJPEG stream → Ubuntu/WSL2 → ORB-SLAM3 monocular tracking and sparse map | [`SLAM/README.md`](SLAM/README.md) |
 | [`occluded_dataset/`](occluded_dataset/) | WiderPerson images, annotations, splits, and MATLAB evaluation tools for dense pedestrian detection under occlusion | [`occluded_dataset/README.md`](occluded_dataset/README.md) |
-| [`ml-models/`](ml-models/) | Trained disaster-detection model artifact (`disaster-mlmodel.pt`) | No inference wrapper is included yet |
+| [`ml-models/`](ml-models/) | Two trained YOLOv11 models: hazard detection (`disaster-mlmodel.pt`) and occluded-person detection (`occluded-mlmodel.pt`) | [`ml-models/README.md`](ml-models/README.md) |
+| [`simulation/blender/`](simulation/blender/) | Blender visualisations of the mission (**simulated**) | [`simulation/blender/README.md`](simulation/blender/README.md) |
+| [`docs/`](docs/) | Architecture, hardware roadmap, alert format | [`docs/architecture.md`](docs/architecture.md) |
 
 ## Fastest path: run the SLAM prototype
 
@@ -128,15 +151,18 @@ The evaluator writes `<legend_name>_eval_result.txt` beside the prediction direc
 │   ├── Images/           WiderPerson image set
 │   ├── Annotations/      ground-truth annotations
 │   └── Evaluation/       MATLAB metrics and validation metadata
-├── ml-models/            disaster-detection model artifact
+├── ml-models/            hazard and occluded-person YOLOv11 models
+├── simulation/blender/   Blender mission visualisations (simulated)
+├── docs/                 architecture, hardware abstraction, alert schema
 └── README.md
 ```
 
 ## Limitations and next steps
 
-- No top-level training or inference script currently connects `disaster-mlmodel.pt` to the camera or SLAM output.
+- No top-level inference script yet connects the detection models to the camera or SLAM output.
+- Model frame rate on the Raspberry Pi 5, alert latency and LoRa delivery rate are not yet measured.
 - The SLAM prototype uses a laptop camera, approximate calibration, monocular scale, and a sparse map.
-- Autonomous flight, obstacle avoidance, survivor confirmation, thermal sensing, and sensor fusion are outside the current implementation.
+- Autonomous flight, obstacle avoidance, survivor confirmation, thermal sensing, and sensor fusion are outside the current implementation (see [Project status](#project-status)).
 - ORB-SLAM3 and Pangolin are external dependencies; follow their licenses and build instructions.
 - Dataset files retain the original WiderPerson ownership and terms. Cite the original work when using them.
 
