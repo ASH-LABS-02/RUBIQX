@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ground Station — LoRa Mesh</title>
+<style>
+  :root{
+    --plane:#0d0d0d; --surface:#1a1a19; --surface-2:#212120;
+    --ink:#ffffff; --ink-2:#c3c2b7; --muted:#898781;
+    --grid:#2c2c2a; --border:rgba(255,255,255,0.10);
+    --accent:#eb6834; --accent-dim:#8a3d1c; --accent-glow:rgba(235,104,52,0.35);
+    --good:#0ca30c; --warning:#fab219; --serious:#ec835a; --critical:#d03b3b;
+    --radius:14px;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:
+      radial-gradient(circle at 85% 0%, rgba(235,104,52,0.08), transparent 45%),
+      radial-gradient(circle at 10% 100%, rgba(235,104,52,0.05), transparent 45%),
+      var(--plane);
+    color:var(--ink);
+    font-family:system-ui,-apple-system,"Segoe UI",sans-serif;
+    min-height:100vh;
+    padding:20px 24px 40px;
+  }
+  a{color:inherit;}
+
+  header{display:flex; align-items:center; justify-content:space-between; margin-bottom:20px; flex-wrap:wrap; gap:12px;}
+  .brand{display:flex; align-items:center; gap:12px;}
+  .brand-mark{
+    width:38px;height:38px;border-radius:10px;
+    background:linear-gradient(135deg, var(--accent), var(--accent-dim));
+    display:flex;align-items:center;justify-content:center;
+    box-shadow:0 0 22px var(--accent-glow); flex-shrink:0;
+  }
+  .brand-mark svg{width:20px;height:20px;}
+  .brand h1{font-size:17px; font-weight:700; margin:0; letter-spacing:.2px;}
+  .brand .sub{font-size:12px; color:var(--muted); margin-top:1px;}
+  nav.crumb{display:flex; gap:8px; align-items:center;}
+  nav.crumb a{
+    font-size:12px; color:var(--ink-2); text-decoration:none;
+    padding:7px 12px; border:1px solid var(--border); border-radius:8px;
+    transition:border-color .15s, color .15s;
+  }
+  nav.crumb a:hover{border-color:var(--accent); color:var(--accent);}
+  nav.crumb a.active{color:var(--accent); border-color:var(--accent-dim); background:rgba(235,104,52,0.08);}
+
+  .status-pill{display:inline-flex; align-items:center; gap:7px; font-size:12px; font-weight:600; letter-spacing:.3px;
+    padding:7px 13px; border-radius:100px; background:var(--surface); border:1px solid var(--border);}
+  .dot{width:7px;height:7px;border-radius:50%; background:var(--good); flex-shrink:0;}
+  .dot.live{animation:pulse-dot 1.6s ease-in-out infinite;}
+  .dot.off{background:var(--critical); animation:none;}
+  @keyframes pulse-dot{ 0%,100%{box-shadow:0 0 0 0 rgba(12,163,12,.55);} 50%{box-shadow:0 0 0 5px rgba(12,163,12,0);} }
+
+  .grid{display:grid; grid-template-columns:1fr 1fr; gap:16px; align-items:start;}
+  @media (max-width:980px){ .grid{grid-template-columns:1fr;} }
+  .card{background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:16px;}
+  .card h2{font-size:12px; text-transform:uppercase; letter-spacing:1px; color:var(--muted); margin:0 0 12px; font-weight:700;}
+
+  /* ---------- signal hero ---------- */
+  .hero{display:flex; align-items:center; gap:22px; padding:22px 16px;}
+  .radar{position:relative; width:150px; height:150px; flex-shrink:0;}
+  .radar-ring{position:absolute; inset:0; border-radius:50%; border:1px solid var(--grid);}
+  .radar-ring.r2{inset:18px;} .radar-ring.r3{inset:36px;} .radar-ring.r4{inset:54px;}
+  .radar-sweep{
+    position:absolute; inset:0; border-radius:50%;
+    background:conic-gradient(from 0deg, rgba(235,104,52,0.55), transparent 60deg);
+    animation:spin 2.4s linear infinite;
+    -webkit-mask:radial-gradient(circle, transparent 0%, black 2%);
+            mask:radial-gradient(circle, transparent 0%, black 2%);
+  }
+  .radar-sweep.paused{animation-play-state:paused; opacity:.25;}
+  @keyframes spin{ to{transform:rotate(360deg);} }
+  .radar-center{position:absolute; inset:0; display:flex; align-items:center; justify-content:center; flex-direction:column;}
+  .radar-center .rssi-val{font-size:30px; font-weight:800; font-variant-numeric:tabular-nums; line-height:1;}
+  .radar-center .rssi-unit{font-size:11px; color:var(--muted); margin-top:2px; font-weight:600; letter-spacing:.5px;}
+  .ping{position:absolute; inset:0; border-radius:50%; border:2px solid var(--accent); opacity:0; pointer-events:none;}
+  .ping.fire{animation:ping-out 0.9s ease-out;}
+  @keyframes ping-out{ 0%{opacity:.7; transform:scale(0.4);} 100%{opacity:0; transform:scale(1.35);} }
+
+  .hero-info{flex:1; min-width:0;}
+  .hero-info .big{font-size:15px; font-weight:700; margin-bottom:10px;}
+  .hero-info .row{display:flex; justify-content:space-between; font-size:12.5px; color:var(--ink-2); padding:6px 0; border-top:1px solid var(--grid);}
+  .hero-info .row b{color:var(--ink); font-variant-numeric:tabular-nums;}
+
+  /* ---------- tiles ---------- */
+  .tiles{display:grid; grid-template-columns:repeat(2,1fr); gap:10px;}
+  .tile{background:var(--surface-2); border:1px solid var(--border); border-radius:10px; padding:12px 14px;}
+  .tile .label{font-size:10.5px; text-transform:uppercase; letter-spacing:.6px; color:var(--muted); font-weight:700;}
+  .tile .value{font-size:20px; font-weight:700; margin-top:4px; font-variant-numeric:tabular-nums; line-height:1.2; word-break:break-all;}
+  .tile .unit{font-size:11px; color:var(--muted); font-weight:500;}
+  .tile.accent .value{color:var(--accent);}
+
+  /* ---------- radio spec sheet ---------- */
+  .spec{display:grid; grid-template-columns:1fr 1fr; gap:8px 16px; font-size:12.5px;}
+  .spec .k{color:var(--muted);} .spec .v{color:var(--ink); font-weight:600; text-align:right; font-variant-numeric:tabular-nums;}
+  .spec-row{display:flex; justify-content:space-between; padding:7px 0; border-top:1px solid var(--grid);}
+  .spec-row:first-child{border-top:none;}
+
+  /* ---------- rssi chart ---------- */
+  .chart-card{margin-top:16px;}
+  .chart-wrap{position:relative; height:150px;}
+  #rssi-chart{width:100%; height:100%; display:block;}
+  .chart-empty{position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:var(--muted); font-size:12.5px;}
+  .legend{display:flex; gap:16px; margin-top:10px; font-size:11.5px; color:var(--ink-2);}
+  .legend span{display:inline-flex; align-items:center; gap:6px;}
+  .legend i{width:10px; height:2px; background:var(--accent); display:inline-block; border-radius:2px;}
+
+  /* ---------- mesh alerts feed ---------- */
+  .feed-card{margin-top:16px;}
+  .feed-list{display:flex; flex-direction:column; gap:8px; max-height:320px; overflow-y:auto;}
+  .m-item{display:flex; align-items:center; gap:12px; padding:10px 12px; background:var(--surface-2);
+    border:1px solid var(--border); border-radius:9px; animation:slide-in .35s ease;}
+  @keyframes slide-in{ from{opacity:0; transform:translateY(-8px);} to{opacity:1; transform:translateY(0);} }
+  .m-item.flash{box-shadow:0 0 0 1px var(--accent), 0 0 16px var(--accent-glow);}
+  .m-icon{width:34px; height:34px; border-radius:8px; background:rgba(235,104,52,0.14); color:var(--accent);
+    display:flex; align-items:center; justify-content:center; font-size:16px; flex-shrink:0;}
+  .m-mid{flex:1; min-width:0;}
+  .m-mid .t1{font-size:12.5px; font-weight:600;}
+  .m-mid .t2{font-size:11px; color:var(--muted); margin-top:2px;}
+  .badge{font-size:10px; font-weight:700; padding:3px 8px; border-radius:100px; letter-spacing:.3px; flex-shrink:0;}
+  .badge.direct{background:rgba(12,163,12,0.15); color:var(--good);}
+  .badge.relay{background:rgba(250,178,25,0.15); color:var(--warning);}
+  .m-rssi{font-size:11.5px; color:var(--ink-2); font-variant-numeric:tabular-nums; flex-shrink:0; width:56px; text-align:right;}
+  .m-time{font-size:11px; color:var(--muted); flex-shrink:0; font-variant-numeric:tabular-nums;}
+  .empty-hint{color:var(--muted); font-size:12.5px; text-align:center; padding:24px 0;}
+
+  ::-webkit-scrollbar{width:8px;}
+  ::-webkit-scrollbar-thumb{background:var(--grid); border-radius:4px;}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">
+    <div class="brand-mark">
+      <svg viewBox="0 0 24 24" fill="none" stroke="#2a1206" stroke-width="2" stroke-linecap="round"><path d="M12 20v-7M8 9a5 5 0 0 1 8 0M5 6a9 9 0 0 1 14 0"/><circle cx="12" cy="15" r="1.6" fill="#2a1206" stroke="none"/></svg>
+    </div>
+    <div><h1>GROUND STATION</h1><div class="sub">LoRa mesh link &middot; ESP32 + RA-02</div></div>
+  </div>
+  <nav class="crumb">
+    <a href="/">Mission Hub</a>
+    <a href="/ml">Vision AI</a>
+    <a href="/gcs" class="active">Ground Station</a>
+  </nav>
+  <div class="status-pill"><span class="dot" id="link-dot"></span><span id="link-status-text">CONNECTING…</span></div>
+</header>
+
+<div class="grid">
+  <div class="card">
+    <h2>Radio Link</h2>
+    <div class="hero">
+      <div class="radar">
+        <div class="radar-ring"></div><div class="radar-ring r2"></div>
+        <div class="radar-ring r3"></div><div class="radar-ring r4"></div>
+        <div class="radar-sweep" id="radar-sweep"></div>
+        <div class="ping" id="ping"></div>
+        <div class="radar-center">
+          <div class="rssi-val" id="rssi-val">—</div>
+          <div class="rssi-unit">dBm RSSI</div>
+        </div>
+      </div>
+      <div class="hero-info">
+        <div class="big" id="hero-headline">Waiting for first packet…</div>
+        <div class="row"><span>SNR</span><b id="snr-val">— dB</b></div>
+        <div class="row"><span>Last heard</span><b id="last-heard">—</b></div>
+        <div class="row"><span>ESP32 port</span><b id="esp-port">—</b></div>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <div class="card" style="margin-bottom:16px;">
+      <h2>Mesh Statistics</h2>
+      <div class="tiles">
+        <div class="tile accent"><div class="label">Frames Heard</div><div class="value" id="v-frames">0</div></div>
+        <div class="tile"><div class="label">Human Alerts</div><div class="value" id="v-detections">0</div></div>
+        <div class="tile"><div class="label">Uptime</div><div class="value" id="v-uptime" style="font-size:16px;">—</div></div>
+        <div class="tile"><div class="label">Route</div><div class="value" style="font-size:16px;">DIRECT</div><span class="unit">0-hop, point-to-point</span></div>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Radio Parameters</h2>
+      <div class="spec">
+        <div class="spec-row"><span class="k">Frequency</span><span class="v">433.0 MHz</span></div>
+        <div class="spec-row"><span class="k">Spreading Factor</span><span class="v">SF10</span></div>
+        <div class="spec-row"><span class="k">Bandwidth</span><span class="v">125 kHz</span></div>
+        <div class="spec-row"><span class="k">Coding Rate</span><span class="v">4/5</span></div>
+        <div class="spec-row"><span class="k">TX Power</span><span class="v">2 dBm</span></div>
+        <div class="spec-row"><span class="k">Sync Word</span><span class="v">0x12</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card chart-card">
+  <h2>Signal History &middot; RSSI</h2>
+  <div class="chart-wrap">
+    <canvas id="rssi-chart"></canvas>
+    <div class="chart-empty" id="chart-empty">No packets received yet</div>
+  </div>
+  <div class="legend"><span><i></i>RSSI (dBm)</span></div>
+</div>
+
+<div class="card feed-card">
+  <h2>Alerts Relayed via LoRa Mesh</h2>
+  <div class="feed-list" id="m-list">
+    <div class="empty-hint">No mesh-relayed detections yet — waiting on the drone's radio…</div>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+
+function animateValue(el, from, to, decimals, ms){
+  const start = performance.now(); from = isFinite(from) ? from : to;
+  function step(now){
+    const p = Math.min(1, (now-start)/ms); const eased = 1 - Math.pow(1-p, 3);
+    el.textContent = (from + (to-from)*eased).toFixed(decimals);
+    if(p<1) requestAnimationFrame(step);
+  }
+  requestAnimationFrame(step);
+}
+function fmtDuration(s){
+  if(s==null) return '—';
+  s = Math.floor(s);
+  if(s<60) return s+'s';
+  if(s<3600) return Math.floor(s/60)+'m '+(s%60)+'s';
+  return Math.floor(s/3600)+'h '+Math.floor((s%3600)/60)+'m';
+}
+function rssiQuality(dbm){
+  if(dbm==null) return {label:'—', color:'var(--muted)'};
+  if(dbm >= -80) return {label:'STRONG', color:'var(--good)'};
+  if(dbm >= -105) return {label:'FAIR', color:'var(--warning)'};
+  return {label:'WEAK', color:'var(--serious)'};
+}
+
+/* ---------- RSSI history chart ---------- */
+const rssiHistory = [];
+const canvas = $('rssi-chart');
+function drawChart(){
+  const dpr = window.devicePixelRatio||1;
+  const w = canvas.clientWidth, h = canvas.clientHeight;
+  canvas.width = w*dpr; canvas.height = h*dpr;
+  const ctx = canvas.getContext('2d'); ctx.scale(dpr,dpr);
+  ctx.clearRect(0,0,w,h);
+  $('chart-empty').style.display = rssiHistory.length ? 'none' : 'flex';
+  if(rssiHistory.length<2) return;
+  const lo = Math.min(...rssiHistory)-4, hi = Math.max(...rssiHistory)+4;
+  // gridlines
+  ctx.strokeStyle = '#2c2c2a'; ctx.lineWidth = 1;
+  for(let i=0;i<=3;i++){ const y = (h/3)*i; ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(w,y); ctx.stroke(); }
+  // line
+  ctx.beginPath();
+  rssiHistory.forEach((v,i)=>{
+    const x = (i/(rssiHistory.length-1))*w;
+    const y = h - ((v-lo)/(hi-lo))*h;
+    i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);
+  });
+  ctx.strokeStyle = '#eb6834'; ctx.lineWidth = 2; ctx.lineJoin='round'; ctx.lineCap='round'; ctx.stroke();
+  // fill
+  ctx.lineTo(w,h); ctx.lineTo(0,h); ctx.closePath();
+  const grad = ctx.createLinearGradient(0,0,0,h);
+  grad.addColorStop(0,'rgba(235,104,52,0.25)'); grad.addColorStop(1,'rgba(235,104,52,0)');
+  ctx.fillStyle = grad; ctx.fill();
+  // last point dot
+  const lastV = rssiHistory[rssiHistory.length-1];
+  const lx = w, ly = h - ((lastV-lo)/(hi-lo))*h;
+  ctx.beginPath(); ctx.arc(lx-3,ly,3.5,0,7); ctx.fillStyle='#eb6834'; ctx.fill();
+}
+window.addEventListener('resize', drawChart);
+
+/* ---------- link status polling ---------- */
+let lastFrames=0, lastDetections=0;
+let lastHeartbeatSeen = null;
+async function pollMesh(){
+  try{
+    const r = await fetch('/api/mesh/status'); const d = await r.json();
+    const dot = $('link-dot'), txt = $('link-status-text');
+    const sweep = $('radar-sweep');
+    if(d.connected){
+      dot.className = 'dot live'; txt.textContent = 'LINK ONLINE';
+      sweep.classList.remove('paused');
+    } else if(d.seconds_since_heartbeat != null){
+      dot.className = 'dot off'; txt.textContent = 'LINK STALE';
+      sweep.classList.add('paused');
+    } else {
+      dot.className = 'dot off'; txt.textContent = 'NO SIGNAL';
+      sweep.classList.add('paused');
+    }
+
+    if(d.last_rssi_dbm != null){
+      $('rssi-val').textContent = d.last_rssi_dbm;
+      const q = rssiQuality(d.last_rssi_dbm);
+      $('hero-headline').textContent = 'Signal ' + q.label + ' — packet heard from drone';
+      $('hero-headline').style.color = q.color;
+      $('snr-val').textContent = (d.last_snr_db!=null ? d.last_snr_db.toFixed(1) : '—') + ' dB';
+    }
+    $('last-heard').textContent = d.seconds_since_heartbeat!=null ? fmtDuration(d.seconds_since_heartbeat)+' ago' : '—';
+    $('esp-port').textContent = d.esp32_port || '—';
+    $('v-uptime').textContent = fmtDuration(d.uptime_s);
+
+    animateValue($('v-frames'), lastFrames, d.total_frames, 0, 500); lastFrames = d.total_frames;
+    animateValue($('v-detections'), lastDetections, d.total_detections, 0, 500); lastDetections = d.total_detections;
+
+    // new heartbeat -> ping ripple + chart point
+    const hbKey = d.seconds_since_heartbeat!=null ? Math.floor(Date.now()/1000 - d.seconds_since_heartbeat) : null;
+    if(hbKey != null && hbKey !== lastHeartbeatSeen){
+      lastHeartbeatSeen = hbKey;
+      if(d.last_rssi_dbm != null){
+        rssiHistory.push(d.last_rssi_dbm);
+        if(rssiHistory.length>40) rssiHistory.shift();
+        drawChart();
+      }
+      const ping = $('ping'); ping.classList.remove('fire'); void ping.offsetWidth; ping.classList.add('fire');
+    }
+  }catch(e){
+    $('link-dot').className = 'dot off'; $('link-status-text').textContent = 'GATEWAY UNREACHABLE';
+  }
+}
+setInterval(pollMesh, 2000); pollMesh(); drawChart();
+
+/* ---------- mesh-relayed alerts feed ---------- */
+const mList = $('m-list');
+let seenIds = new Set();
+function timeAgo(ts){
+  const s = Math.max(0, Math.floor(Date.now()/1000 - ts));
+  if(s<60) return s+'s ago';
+  if(s<3600) return Math.floor(s/60)+'m ago';
+  return Math.floor(s/3600)+'h ago';
+}
+function renderMeshAlert(a, prepend){
+  if(a.source !== 'lora-mesh') return;
+  if(seenIds.has(a.id)) return;
+  seenIds.add(a.id);
+  if(mList.querySelector('.empty-hint')) mList.innerHTML='';
+  const routeCls = a.route === 'RELAY' ? 'relay' : 'direct';
+  const el = document.createElement('div');
+  el.className = 'm-item flash';
+  el.innerHTML = `
+    <div class="m-icon">⚠</div>
+    <div class="m-mid">
+      <div class="t1">${a.person_count} person(s) &middot; ${a.confidence.toFixed(1)}% confidence</div>
+      <div class="t2">${a.lat!=null ? a.lat.toFixed(5)+', '+a.lon.toFixed(5) : 'no GPS fix'}</div>
+    </div>
+    <span class="badge ${routeCls}">${a.route||'DIRECT'} &middot; ${a.hops||0}hop</span>
+    <span class="m-rssi">${a.rssi_dbm!=null ? a.rssi_dbm+' dBm' : '—'}</span>
+    <span class="m-time">${timeAgo(a.created_at)}</span>
+  `;
+  prepend ? mList.prepend(el) : mList.appendChild(el);
+  setTimeout(()=>el.classList.remove('flash'), 1600);
+  while(mList.children.length>25) mList.removeChild(mList.lastChild);
+}
+fetch('/api/alerts').then(r=>r.json()).then(list=>{
+  list.filter(a=>a.source==='lora-mesh').slice(0,12).forEach(a=>renderMeshAlert(a,false));
+});
+const es = new EventSource('/api/alerts/stream');
+es.onmessage = (e)=>{ try{ renderMeshAlert(JSON.parse(e.data), true); }catch(_){} };
+</script>
+</body>
+</html>

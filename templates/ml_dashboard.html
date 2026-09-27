@@ -1,0 +1,452 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Vision AI — Human Detection</title>
+<style>
+  :root{
+    --plane:#0d0d0d; --surface:#1a1a19; --surface-2:#212120;
+    --ink:#ffffff; --ink-2:#c3c2b7; --muted:#898781;
+    --grid:#2c2c2a; --border:rgba(255,255,255,0.10);
+    --accent:#22d3ee; --accent-dim:#0e7490; --accent-glow:rgba(34,211,238,0.35);
+    --line:#3987e5;
+    --good:#0ca30c; --warning:#fab219; --serious:#ec835a; --critical:#d03b3b;
+    --radius:14px;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:
+      radial-gradient(circle at 15% 0%, rgba(34,211,238,0.07), transparent 45%),
+      radial-gradient(circle at 85% 100%, rgba(34,211,238,0.05), transparent 45%),
+      var(--plane);
+    color:var(--ink);
+    font-family:system-ui,-apple-system,"Segoe UI",sans-serif;
+    min-height:100vh;
+    padding:20px 24px 40px;
+  }
+  a{color:inherit;}
+
+  /* ---------- header ---------- */
+  header{
+    display:flex; align-items:center; justify-content:space-between;
+    margin-bottom:20px; flex-wrap:wrap; gap:12px;
+  }
+  .brand{display:flex; align-items:center; gap:12px;}
+  .brand-mark{
+    width:38px;height:38px;border-radius:10px;
+    background:linear-gradient(135deg, var(--accent), var(--accent-dim));
+    display:flex;align-items:center;justify-content:center;
+    box-shadow:0 0 22px var(--accent-glow);
+    flex-shrink:0;
+  }
+  .brand-mark svg{width:20px;height:20px;}
+  .brand h1{font-size:17px; font-weight:700; margin:0; letter-spacing:.2px;}
+  .brand .sub{font-size:12px; color:var(--muted); margin-top:1px;}
+  nav.crumb{display:flex; gap:8px; align-items:center;}
+  nav.crumb a{
+    font-size:12px; color:var(--ink-2); text-decoration:none;
+    padding:7px 12px; border:1px solid var(--border); border-radius:8px;
+    transition:border-color .15s, color .15s;
+  }
+  nav.crumb a:hover{border-color:var(--accent); color:var(--accent);}
+  nav.crumb a.active{color:var(--accent); border-color:var(--accent-dim); background:rgba(34,211,238,0.08);}
+
+  .status-pill{
+    display:inline-flex; align-items:center; gap:7px;
+    font-size:12px; font-weight:600; letter-spacing:.3px;
+    padding:7px 13px; border-radius:100px;
+    background:var(--surface); border:1px solid var(--border);
+  }
+  .dot{width:7px;height:7px;border-radius:50%; background:var(--good); flex-shrink:0;}
+  .dot.live{animation:pulse-dot 1.6s ease-in-out infinite;}
+  .dot.warn{background:var(--warning);}
+  .dot.off{background:var(--critical); animation:none;}
+  @keyframes pulse-dot{
+    0%,100%{box-shadow:0 0 0 0 rgba(12,163,12,.55);}
+    50%{box-shadow:0 0 0 5px rgba(12,163,12,0);}
+  }
+
+  /* ---------- layout ---------- */
+  .grid{display:grid; grid-template-columns:1.5fr 1fr; gap:16px; align-items:start;}
+  @media (max-width:980px){ .grid{grid-template-columns:1fr;} }
+
+  .card{
+    background:var(--surface); border:1px solid var(--border);
+    border-radius:var(--radius); padding:16px;
+  }
+  .card h2{font-size:12px; text-transform:uppercase; letter-spacing:1px; color:var(--muted); margin:0 0 12px; font-weight:700;}
+
+  /* ---------- video panel ---------- */
+  .video-panel{padding:0; overflow:hidden; position:relative;}
+  .video-frame{position:relative; width:100%; aspect-ratio:4/3; background:#000; overflow:hidden;}
+  .video-frame img{width:100%; height:100%; object-fit:cover; display:block;}
+  .scan-sweep{
+    position:absolute; left:0; right:0; height:120px; top:-120px;
+    background:linear-gradient(180deg, transparent, rgba(34,211,238,0.16), transparent);
+    animation:sweep 3.6s linear infinite; pointer-events:none;
+  }
+  @keyframes sweep{ 0%{top:-120px;} 100%{top:100%;} }
+  .bracket{position:absolute; width:26px; height:26px; border-color:var(--accent); opacity:.85; pointer-events:none;
+    filter:drop-shadow(0 0 4px var(--accent-glow));}
+  .bracket.tl{top:10px; left:10px; border-top:2px solid; border-left:2px solid;}
+  .bracket.tr{top:10px; right:10px; border-top:2px solid; border-right:2px solid;}
+  .bracket.bl{bottom:10px; left:10px; border-bottom:2px solid; border-left:2px solid;}
+  .bracket.br{bottom:10px; right:10px; border-bottom:2px solid; border-right:2px solid;}
+  .view-toggle{
+    position:absolute; top:12px; left:12px; z-index:2;
+    display:flex; gap:2px; background:rgba(13,13,13,0.72); backdrop-filter:blur(3px);
+    border:1px solid rgba(34,211,238,0.35); border-radius:100px; padding:3px;
+  }
+  .view-toggle button{
+    border:none; background:transparent; color:var(--ink-2);
+    font-size:10.5px; font-weight:700; letter-spacing:.4px;
+    padding:5px 12px; border-radius:100px; cursor:pointer; transition:all .15s;
+  }
+  .view-toggle button.active{background:var(--accent); color:#04202a;}
+  .view-toggle button:not(.active):hover{color:var(--ink);}
+  .model-chip{
+    position:absolute; top:40px; right:12px;
+    font-size:10.5px; color:var(--accent); font-weight:700; letter-spacing:.4px;
+    background:rgba(13,13,13,0.72); backdrop-filter:blur(3px);
+    border:1px solid rgba(34,211,238,0.35); border-radius:100px;
+    padding:5px 12px; pointer-events:none;
+  }
+  .detect-badge{
+    position:absolute; bottom:12px; left:44px;
+    display:flex; align-items:center; gap:8px;
+    background:rgba(13,13,13,0.72); backdrop-filter:blur(3px);
+    border:1px solid rgba(34,211,238,0.4); border-radius:100px;
+    padding:6px 14px 6px 10px; font-size:12px; font-weight:700;
+    transition:border-color .2s, background .2s;
+  }
+  .detect-badge.active{border-color:var(--serious); background:rgba(236,131,90,0.16);}
+  .detect-badge .n{font-size:15px; color:var(--accent);}
+  .detect-badge.active .n{color:var(--serious);}
+  .v-split{display:flex; align-items:center; gap:8px; padding-left:8px; margin-left:2px; border-left:1px solid rgba(255,255,255,0.18);}
+  .v-split[hidden]{display:none;}
+  .n.verified{font-size:15px; color:var(--good);}
+
+  .box-legend{
+    display:flex; flex-wrap:wrap; gap:14px; padding:10px 16px;
+    font-size:11px; color:var(--muted); border-top:1px solid var(--border);
+  }
+  .box-legend span{display:inline-flex; align-items:center; gap:6px;}
+  .sw{width:10px; height:10px; border-radius:3px; display:inline-block;}
+  .sw-verified{background:#0ca30c;}
+  .sw-unverified{background:#ffb020;}
+
+  /* ---------- stat tiles ---------- */
+  .tiles{display:grid; grid-template-columns:repeat(2,1fr); gap:10px; margin-bottom:14px;}
+  .tile{
+    background:var(--surface-2); border:1px solid var(--border); border-radius:10px;
+    padding:12px 14px; position:relative; overflow:hidden;
+  }
+  .tile .label{font-size:10.5px; text-transform:uppercase; letter-spacing:.6px; color:var(--muted); font-weight:700;}
+  .tile .value{font-size:22px; font-weight:700; margin-top:4px; font-variant-numeric:tabular-nums; line-height:1.1;}
+  .tile .unit{font-size:12px; color:var(--muted); font-weight:500; margin-left:2px;}
+  .tile canvas{position:absolute; right:0; bottom:0; opacity:.55;}
+  .tile.accent .value{color:var(--accent);}
+
+  /* ---------- controls ---------- */
+  .seg{display:flex; gap:6px; flex-wrap:wrap; margin-bottom:14px;}
+  .seg button{
+    flex:1 1 auto; min-width:64px;
+    background:var(--surface-2); border:1px solid var(--border); color:var(--ink-2);
+    font-size:11px; font-weight:600; padding:8px 8px; border-radius:8px; cursor:pointer;
+    transition:all .15s;
+  }
+  .seg button:hover{border-color:var(--accent-dim);}
+  .seg button.active{background:rgba(34,211,238,0.12); border-color:var(--accent); color:var(--accent);}
+  .slider-row{margin-bottom:14px;}
+  .slider-row .lab{display:flex; justify-content:space-between; font-size:11.5px; color:var(--ink-2); margin-bottom:6px;}
+  .slider-row .lab b{color:var(--accent); font-variant-numeric:tabular-nums;}
+  input[type=range]{width:100%; accent-color:var(--accent); height:4px;}
+  .btn-row{display:flex; gap:8px;}
+  .btn{
+    flex:1; padding:10px; border-radius:9px; border:1px solid var(--border);
+    background:var(--surface-2); color:var(--ink); font-size:12.5px; font-weight:600;
+    cursor:pointer; transition:all .15s; display:flex; align-items:center; justify-content:center; gap:6px;
+  }
+  .btn:hover{border-color:var(--accent); color:var(--accent);}
+  .btn:active{transform:scale(0.97);}
+  .btn.rec-active{border-color:var(--critical); color:var(--critical); background:rgba(208,59,59,0.1);}
+
+  /* ---------- detections feed ---------- */
+  .feed-card{
+    background:var(--surface); border:1px solid var(--border); border-radius:var(--radius);
+    padding:16px; margin-top:16px;
+  }
+  .feed-list{display:flex; flex-direction:column; gap:8px; max-height:340px; overflow-y:auto;}
+  .det-item{
+    display:flex; align-items:center; gap:12px; padding:9px 10px;
+    background:var(--surface-2); border:1px solid var(--border); border-radius:9px;
+    animation:slide-in .35s ease;
+  }
+  @keyframes slide-in{ from{opacity:0; transform:translateY(-8px);} to{opacity:1; transform:translateY(0);} }
+  .det-item.flash{ box-shadow:0 0 0 1px var(--accent), 0 0 16px var(--accent-glow); }
+  .det-thumb{width:52px; height:38px; border-radius:6px; object-fit:cover; background:#000; flex-shrink:0;}
+  .det-mid{flex:1; min-width:0;}
+  .det-mid .t1{font-size:12.5px; font-weight:600;}
+  .det-mid .t2{font-size:11px; color:var(--muted); margin-top:2px;}
+  .conf-bar{width:80px; height:5px; border-radius:3px; background:var(--grid); overflow:hidden; flex-shrink:0;}
+  .conf-bar > i{display:block; height:100%; background:var(--accent); border-radius:3px; transition:width .6s cubic-bezier(.22,.9,.35,1);}
+  .det-time{font-size:11px; color:var(--muted); flex-shrink:0; font-variant-numeric:tabular-nums;}
+  .empty-hint{color:var(--muted); font-size:12.5px; text-align:center; padding:24px 0;}
+
+  ::-webkit-scrollbar{width:8px;}
+  ::-webkit-scrollbar-thumb{background:var(--grid); border-radius:4px;}
+
+  .count-flip{display:inline-block;}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">
+    <div class="brand-mark">
+      <svg viewBox="0 0 24 24" fill="none"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7-10-7-10-7Z" stroke="#04202a" stroke-width="2"/><circle cx="12" cy="12" r="3" fill="#04202a"/></svg>
+    </div>
+    <div>
+      <h1>VISION AI</h1>
+      <div class="sub">Human detection model &middot; live inference</div>
+    </div>
+  </div>
+  <nav class="crumb">
+    <a href="/">Mission Hub</a>
+    <a href="/ml" class="active">Vision AI</a>
+    <a href="/gcs">Ground Station</a>
+  </nav>
+  <div class="status-pill"><span class="dot live" id="model-dot"></span><span id="model-status-text">MODEL LOADING…</span></div>
+</header>
+
+<div class="grid">
+  <!-- LEFT: video -->
+  <div class="card video-panel">
+    <div class="video-frame">
+      <img id="feed" src="/video_feed" alt="live camera feed">
+      <div class="scan-sweep"></div>
+      <div class="bracket tl"></div><div class="bracket tr"></div>
+      <div class="bracket bl"></div><div class="bracket br"></div>
+      <div class="view-toggle">
+        <button class="active" id="btn-view-rgb">RGB</button>
+        <button id="btn-view-thermal" title="Simulated -- colour-mapped from this same RGB camera, not a real IR sensor">THERMAL</button>
+      </div>
+      <div class="model-chip" id="ov-model">—</div>
+      <div class="detect-badge" id="detect-badge">
+        <span class="n" id="detect-n">0</span><span>PERSON(S) IN FRAME</span>
+        <span class="v-split" id="detect-verified-wrap"><span class="n verified" id="detect-verified">0</span><span>THERMAL-VERIFIED</span></span>
+      </div>
+    </div>
+    <div class="box-legend">
+      <span><i class="sw sw-verified"></i>RGB + thermal heuristic agree</span>
+      <span><i class="sw sw-unverified"></i>RGB only — thermal check didn't confirm</span>
+    </div>
+  </div>
+
+  <!-- RIGHT: stats + controls -->
+  <div>
+    <div class="card" style="margin-bottom:16px;">
+      <h2>Live Telemetry</h2>
+      <div class="tiles">
+        <div class="tile accent"><div class="label">FPS</div><div class="value"><span id="v-fps">0.0</span></div><canvas id="c-fps" width="70" height="30"></canvas></div>
+        <div class="tile"><div class="label">Latency</div><div class="value"><span id="v-lat">0</span><span class="unit">ms</span></div><canvas id="c-lat" width="70" height="30"></canvas></div>
+        <div class="tile"><div class="label">Total Frames</div><div class="value"><span id="v-frames">0</span></div></div>
+        <div class="tile"><div class="label">CPU / RAM</div><div class="value"><span id="v-cpu">0</span><span class="unit">% / </span><span id="v-ram">0</span><span class="unit">%</span></div></div>
+        <div class="tile"><div class="label">CPU Temp</div><div class="value"><span id="v-temp">0</span><span class="unit">&deg;C</span></div></div>
+        <div class="tile"><div class="label">Confidence Floor</div><div class="value"><span id="v-conf">0.25</span></div></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Model Configuration</h2>
+      <div class="seg" id="model-seg"></div>
+      <div class="slider-row">
+        <div class="lab"><span>Detection confidence</span><b id="conf-label">0.25</b></div>
+        <input type="range" id="conf-slider" min="0.05" max="0.90" step="0.05" value="0.25">
+      </div>
+      <div class="btn-row">
+        <button class="btn" id="btn-snap">📸 Snapshot</button>
+        <button class="btn" id="btn-rec">⏺ Record 10s</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="feed-card">
+  <h2>Recent Detections &middot; Camera-Direct</h2>
+  <div class="feed-list" id="det-list">
+    <div class="empty-hint">Waiting for the first detection…</div>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+
+/* ---------- animated number helper ---------- */
+function animateValue(el, from, to, decimals, ms){
+  const start = performance.now();
+  from = isFinite(from) ? from : to;
+  function step(now){
+    const p = Math.min(1, (now-start)/ms);
+    const eased = 1 - Math.pow(1-p, 3);
+    el.textContent = (from + (to-from)*eased).toFixed(decimals);
+    if(p<1) requestAnimationFrame(step);
+  }
+  requestAnimationFrame(step);
+}
+
+/* ---------- sparkline ---------- */
+function makeSparkline(canvas, color){
+  const ctx = canvas.getContext('2d');
+  const data = [];
+  const max = 30;
+  return function push(v){
+    data.push(v);
+    if(data.length>max) data.shift();
+    const w = canvas.width, h = canvas.height;
+    ctx.clearRect(0,0,w,h);
+    if(data.length<2) return;
+    const lo = Math.min(...data), hi = Math.max(...data, lo+0.001);
+    ctx.beginPath();
+    data.forEach((d,i)=>{
+      const x = (i/(max-1))*w;
+      const y = h - ((d-lo)/(hi-lo))*h*0.85 - 2;
+      i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);
+    });
+    ctx.strokeStyle = color; ctx.lineWidth = 1.6; ctx.lineJoin='round'; ctx.stroke();
+  };
+}
+const pushFps = makeSparkline($('c-fps'), '#22d3ee');
+const pushLat = makeSparkline($('c-lat'), '#3987e5');
+
+/* ---------- stats polling ---------- */
+let lastFps = 0, lastLat = 0, lastFrames = 0, lastCpu = 0, lastRam = 0, lastTemp = 0;
+async function pollStats(){
+  try{
+    const r = await fetch('/api/stats'); const d = await r.json();
+    animateValue($('v-fps'), lastFps, d.fps, 1, 400); lastFps = d.fps;
+    animateValue($('v-lat'), lastLat, d.latency_ms, 0, 400); lastLat = d.latency_ms;
+    animateValue($('v-frames'), lastFrames, d.total_frames, 0, 500); lastFrames = d.total_frames;
+    animateValue($('v-cpu'), lastCpu, d.cpu_usage, 0, 500); lastCpu = d.cpu_usage;
+    animateValue($('v-ram'), lastRam, d.ram_usage, 0, 500); lastRam = d.ram_usage;
+    animateValue($('v-temp'), lastTemp, d.cpu_temp, 1, 500); lastTemp = d.cpu_temp;
+    $('v-conf').textContent = d.conf.toFixed(2);
+    pushFps(d.fps); pushLat(d.latency_ms);
+    $('ov-model').textContent = d.model_short + ' · ' + d.fps.toFixed(1) + ' FPS';
+    $('model-status-text').textContent = 'MODEL LIVE · ' + (d.model_short||'');
+    $('model-dot').className = 'dot live';
+
+    const n = d.persons_detected||0;
+    const nVerified = d.persons_verified||0;
+    $('detect-n').textContent = n;
+    $('detect-badge').classList.toggle('active', n>0);
+    $('detect-verified').textContent = nVerified;
+    $('detect-verified-wrap').hidden = n===0;
+
+    const btnRec = $('btn-rec');
+    btnRec.classList.toggle('rec-active', !!d.is_recording);
+    btnRec.textContent = d.is_recording ? '⏺ Recording…' : '⏺ Record 10s';
+
+    highlightActiveModel(d.model);
+    if(!conf_dirty) $('conf-slider').value = d.conf;
+  }catch(e){
+    $('model-status-text').textContent = 'MODEL OFFLINE';
+    $('model-dot').className = 'dot off';
+  }
+}
+setInterval(pollStats, 1000); pollStats();
+
+/* ---------- model selector ---------- */
+let currentModelId = null;
+function highlightActiveModel(id){
+  currentModelId = id;
+  document.querySelectorAll('#model-seg button').forEach(b=>{
+    b.classList.toggle('active', b.dataset.id===id);
+  });
+}
+async function loadModels(){
+  const r = await fetch('/api/models'); const d = await r.json();
+  const seg = $('model-seg'); seg.innerHTML='';
+  d.models.forEach(m=>{
+    const b = document.createElement('button');
+    b.textContent = m.label.replace(/^NCNN /,'').replace(' — ',' · ');
+    b.dataset.id = m.id;
+    b.onclick = () => setConfig({model:m.id});
+    seg.appendChild(b);
+  });
+  highlightActiveModel(d.current);
+}
+loadModels();
+
+let conf_dirty = false;
+$('conf-slider').addEventListener('input', e=>{
+  conf_dirty = true;
+  $('conf-label').textContent = parseFloat(e.target.value).toFixed(2);
+});
+$('conf-slider').addEventListener('change', e=>{
+  setConfig({conf: parseFloat(e.target.value)});
+  setTimeout(()=>conf_dirty=false, 1500);
+});
+async function setConfig(body){
+  await fetch('/api/config', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+}
+
+$('btn-snap').onclick = async ()=>{
+  const b = $('btn-snap'); const old = b.textContent;
+  b.textContent = '✓ Saved'; await fetch('/api/snapshot', {method:'POST'});
+  setTimeout(()=>b.textContent=old, 1200);
+};
+$('btn-rec').onclick = async ()=>{ await fetch('/api/record', {method:'POST'}); };
+
+/* ---------- RGB / thermal view toggle ---------- */
+function setView(mode){
+  const feed = $('feed');
+  const isThermal = mode === 'thermal';
+  feed.src = isThermal ? '/video_feed_thermal' : '/video_feed';
+  $('btn-view-thermal').classList.toggle('active', isThermal);
+  $('btn-view-rgb').classList.toggle('active', !isThermal);
+}
+$('btn-view-rgb').onclick = () => setView('rgb');
+$('btn-view-thermal').onclick = () => setView('thermal');
+
+/* ---------- detections feed (SSE + initial load) ---------- */
+const detList = $('det-list');
+let seenIds = new Set();
+function timeAgo(ts){
+  const s = Math.max(0, Math.floor(Date.now()/1000 - ts));
+  if(s<60) return s+'s ago';
+  if(s<3600) return Math.floor(s/60)+'m ago';
+  return Math.floor(s/3600)+'h ago';
+}
+function renderDetection(a, prepend){
+  if(a.source !== 'camera-direct') return;
+  if(seenIds.has(a.id)) return;
+  seenIds.add(a.id);
+  if(detList.querySelector('.empty-hint')) detList.innerHTML='';
+  const el = document.createElement('div');
+  el.className = 'det-item flash';
+  el.innerHTML = `
+    <img class="det-thumb" src="${a.image_url||''}" onerror="this.style.visibility='hidden'">
+    <div class="det-mid">
+      <div class="t1">${a.person_count} person(s) detected</div>
+      <div class="t2">${a.confidence.toFixed(1)}% confidence</div>
+    </div>
+    <div class="conf-bar"><i style="width:0%"></i></div>
+    <div class="det-time">${timeAgo(a.created_at)}</div>
+  `;
+  prepend ? detList.prepend(el) : detList.appendChild(el);
+  requestAnimationFrame(()=> el.querySelector('.conf-bar > i').style.width = a.confidence+'%');
+  setTimeout(()=>el.classList.remove('flash'), 1600);
+  while(detList.children.length>25) detList.removeChild(detList.lastChild);
+}
+fetch('/api/alerts').then(r=>r.json()).then(list=>{
+  list.filter(a=>a.source==='camera-direct').slice(0,12).forEach(a=>renderDetection(a,false));
+});
+const es = new EventSource('/api/alerts/stream');
+es.onmessage = (e)=>{ try{ renderDetection(JSON.parse(e.data), true); }catch(_){} };
+setInterval(()=>{ document.querySelectorAll('.det-time').forEach(()=>{}); }, 30000);
+</script>
+</body>
+</html>

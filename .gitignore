@@ -1,9 +1,35 @@
-
+# Blender temporary & backup files
 *.blend1
 *.blend2
 
-*.blend1
-*.blend2
+# Environments & virtualenvs
+.venv/
+env/
+venv/
+ENV/
 
-*.blend1
-*.blend2
+# Python cache & compiled files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Temporary, IPC & local sockets
+.lgd-nfy*
+*.log
+*.tmp
+*.bak*
+backups/
+
+# Runtime mission logs & YOLO outputs
+alerts.jsonl
+hazards.jsonl
+runs/
+
+# Secrets & configuration
+.env
+*.env
+*.key
+
+# OS files
+.DS_Store
+Thumbs.db

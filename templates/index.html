@@ -1,0 +1,1087 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Command Center</title>
+<style>
+  :root{
+    /* RESCUE FIELD TERMINAL palette -- LIGHT variant, matching the mobile
+       app's own professional light theme so the two surfaces read as one
+       system. Swapping only values, never the variable names, is what
+       keeps every rule below working unmodified. Sharp/technical over
+       generic-SaaS-rounded still applies regardless of color scheme: see
+       --radius. */
+    --plane:#f6f8fb; --surface:#ffffff; --surface-2:#f0f3f7;
+    --ink:#16202e; --ink-2:#3d4b5c; --muted:#5b6b80; --muted-2:#94a3b8;
+    --grid:#e2e8f0; --border:rgba(22,32,46,0.11);
+    --cyan:#0891b2; --cyan-dim:#0e7490; --cyan-glow:rgba(8,145,178,0.16);
+    --orange:#c2540c; --orange-dim:#9a4309; --orange-glow:rgba(194,84,12,0.16);
+    --steel:#0891b2; --steel-glow:rgba(8,145,178,0.14);
+    --good:#15803d; --warning:#c2760c; --serious:#c2540c; --critical:#dc2626;
+    --radius:3px; --radius-sm:2px;
+    --mono:"JetBrains Mono","SF Mono",Consolas,monospace;
+    --display:"Space Grotesk",system-ui,sans-serif;
+  }
+  *{box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--plane);
+    color:var(--ink); font-family:"Inter",system-ui,-apple-system,"Segoe UI",sans-serif;
+    min-height:100vh;
+  }
+  a{color:inherit; text-decoration:none;}
+  ::-webkit-scrollbar{width:8px; height:8px;}
+  ::-webkit-scrollbar-thumb{background:var(--grid); border-radius:2px;}
+
+  /* ---------- REAL / SIMULATED / ESTIMATE honesty language ---------- */
+  .data-badge{
+    display:inline-flex; align-items:center; gap:5px; font-family:var(--mono);
+    font-size:9.5px; font-weight:700; letter-spacing:.5px; text-transform:uppercase;
+    padding:2px 7px; border:1px solid; border-radius:var(--radius-sm); white-space:nowrap;
+  }
+  .data-badge.real{color:var(--good); border-color:rgba(56,224,143,0.35); background:rgba(56,224,143,0.08);}
+  .data-badge.real::before{content:"●";}
+  .data-badge.simulated{color:var(--warning); border-color:rgba(255,184,74,0.35); background:rgba(255,184,74,0.08);}
+  .data-badge.simulated::before{content:"◇";}
+  .data-badge.estimate{color:var(--orange); border-color:rgba(255,138,61,0.35); background:rgba(255,138,61,0.08);}
+  .data-badge.estimate::before{content:"△";}
+  .data-badge.offline{color:var(--muted); border-color:var(--border); background:transparent;}
+  .data-badge.offline::before{content:"○";}
+
+  /* ---------- shell + sidebar ---------- */
+  .shell{display:flex; align-items:flex-start; min-height:100vh;}
+  .sidebar{
+    width:196px; flex-shrink:0; position:sticky; top:0; height:100vh;
+    background:var(--surface); border-right:1px solid var(--border);
+    display:flex; flex-direction:column; padding:18px 12px;
+  }
+  .sb-mark{display:flex; align-items:center; gap:9px; padding:0 6px 16px; margin-bottom:14px; border-bottom:1px solid var(--border);}
+  .sb-mark .brand-mark{width:34px; height:34px; border-radius:var(--radius);}
+  .sb-mark .brand-mark svg{width:18px; height:18px;}
+  .sb-mark-t{font-family:var(--display); font-size:13.5px; font-weight:700;}
+  .sb-mark-s{font-family:var(--mono); font-size:7.5px; color:var(--muted); letter-spacing:.5px; text-transform:uppercase;}
+  .sb-nav{display:flex; flex-direction:column; gap:2px; flex:1;}
+  .sb-item{
+    display:flex; align-items:center; gap:10px; padding:9px 11px; border-radius:var(--radius);
+    font-size:12.5px; font-weight:600; color:var(--muted); cursor:pointer; transition:background .15s, color .15s;
+  }
+  .sb-item svg{width:16px; height:16px; flex-shrink:0;}
+  .sb-item:hover{background:var(--surface-2); color:var(--ink);}
+  .sb-item.active{background:var(--cyan); color:#fff;}
+  .sb-offline{
+    margin-top:10px; padding:11px; border-radius:var(--radius); background:var(--surface-2);
+    display:flex; align-items:center; gap:9px;
+  }
+  .sb-offline svg{width:18px; height:18px; color:var(--good); flex-shrink:0;}
+  .sb-offline-t{font-size:10px; font-weight:800; color:var(--good); letter-spacing:.2px;}
+  .sb-offline-s{font-size:9px; color:var(--muted); margin-top:1px; line-height:1.4;}
+  .main{flex:1; min-width:0; padding:20px 24px 44px;}
+  @media (max-width:980px){ .sidebar{display:none;} }
+
+  .wrap{max-width:1240px; margin:0 auto;}
+
+  /* ---------- header ---------- */
+  header{
+    display:flex; align-items:center; justify-content:space-between;
+    flex-wrap:wrap; gap:14px; margin-bottom:22px;
+    padding-bottom:18px; border-bottom:1px solid var(--border);
+  }
+  .brand{display:flex; align-items:center; gap:13px;}
+  .brand-mark{
+    width:42px; height:42px; border-radius:var(--radius);
+    background:linear-gradient(135deg, var(--cyan), var(--cyan-dim));
+    display:flex; align-items:center; justify-content:center;
+    box-shadow:0 0 24px var(--steel-glow); flex-shrink:0;
+  }
+  .brand-mark svg{width:23px; height:23px;}
+  .brand-tag-t{font-family:var(--display); font-size:14px; font-weight:700; line-height:1.2;}
+  .brand-tag-s{font-family:var(--mono); font-size:8.5px; color:var(--muted); text-transform:uppercase; letter-spacing:.6px; margin-top:1px;}
+  .brand-full{padding-left:16px; border-left:1px solid var(--border); margin-left:2px;}
+  .brand-full h1{font-family:var(--display); font-size:18px; font-weight:700; margin:0; letter-spacing:.2px; white-space:nowrap;}
+  .brand-full .sub{font-family:var(--mono); font-size:10.5px; color:var(--muted); margin-top:2px; letter-spacing:.2px; white-space:nowrap;}
+  @media (max-width:1180px){ .brand-full{display:none;} }
+
+  .alert-badge{
+    display:flex; align-items:center; gap:9px; background:var(--critical); color:#05080b;
+    padding:8px 14px; border-radius:var(--radius);
+  }
+  .alert-badge .v{font-family:var(--mono); font-size:19px; font-weight:800; line-height:1;}
+  .alert-badge .l{font-size:8px; text-transform:uppercase; letter-spacing:.4px; font-weight:800; line-height:1.25;}
+  .alert-badge.quiet{background:var(--surface-2); color:var(--muted); border:1px solid var(--border);}
+
+  /* ---------- command telemetry strip ---------- */
+  .cmd-strip{display:flex; align-items:stretch; gap:1px; flex-wrap:wrap; background:var(--border); border:1px solid var(--border); border-radius:var(--radius);}
+  .cmd-field{
+    background:var(--surface); padding:7px 13px; min-width:88px;
+    display:flex; flex-direction:column; gap:2px;
+  }
+  .cmd-field .k{font-size:8.5px; text-transform:uppercase; letter-spacing:.7px; color:var(--muted-2); font-weight:700;}
+  .cmd-field .v{font-family:var(--mono); font-size:12.5px; font-weight:700; color:var(--ink); font-variant-numeric:tabular-nums; white-space:nowrap;}
+  .cmd-field .v.cyan{color:var(--cyan);} .cmd-field .v.warn{color:var(--warning);} .cmd-field .v.bad{color:var(--critical);} .cmd-field .v.good{color:var(--good);}
+  .cmd-field.alert-field{background:var(--critical); }
+  .cmd-field.alert-field .k{color:rgba(5,8,11,0.7);}
+  .cmd-field.alert-field .v{color:#05080b;}
+
+  .header-right{display:flex; align-items:center; gap:12px; flex-wrap:wrap;}
+  .mission-clock{
+    display:flex; flex-direction:column; align-items:flex-end;
+    font-variant-numeric:tabular-nums; font-family:var(--mono);
+  }
+  .mission-clock .t{font-size:17px; font-weight:800;}
+  .mission-clock .l{font-size:9.5px; color:var(--muted); text-transform:uppercase; letter-spacing:.6px;}
+  .status-pill{
+    display:inline-flex; align-items:center; gap:8px;
+    font-size:12px; font-weight:700; letter-spacing:.3px;
+    padding:8px 15px; border-radius:var(--radius-sm);
+    background:var(--surface); border:1px solid var(--border);
+  }
+  .dot{width:7px; height:7px; border-radius:50%; background:var(--muted); flex-shrink:0;}
+  .dot.good{background:var(--good); animation:pulse 1.7s ease-in-out infinite;}
+  .dot.warn{background:var(--warning);}
+  .dot.bad{background:var(--critical);}
+  @keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(56,224,143,.5);} 50%{box-shadow:0 0 0 5px rgba(56,224,143,0);}}
+
+  /* ---------- operations grid ---------- */
+  .ops-grid{display:grid; grid-template-columns:1.3fr 1fr 1fr; gap:14px; margin-bottom:16px;}
+  @media (max-width:900px){ .ops-grid{grid-template-columns:1fr;} }
+
+  .op-card{
+    background:var(--surface); border:1px solid var(--border); border-radius:var(--radius);
+    overflow:hidden; display:flex; flex-direction:column;
+    transition:border-color .2s, transform .2s;
+  }
+  .op-card:hover{transform:translateY(-2px);}
+  .op-head{
+    display:flex; align-items:center; justify-content:space-between;
+    padding:13px 16px 11px;
+  }
+  .op-head .tag{font-size:10.5px; text-transform:uppercase; letter-spacing:1px; font-weight:800; color:var(--muted);}
+  .op-head .go{font-size:11px; color:var(--muted); display:flex; align-items:center; gap:4px;}
+  .op-card:hover .op-head .go{color:var(--ink);}
+
+  .feed-thumb{position:relative; aspect-ratio:16/10; background:#000; margin:0 12px 12px; border-radius:9px; overflow:hidden;}
+  .feed-thumb img{width:100%; height:100%; object-fit:cover; display:block;}
+  .feed-thumb .badge{
+    position:absolute; bottom:8px; left:8px; font-size:10.5px; font-weight:700;
+    background:rgba(5,8,11,0.72); backdrop-filter:blur(3px); padding:4px 9px;
+    border-radius:var(--radius-sm); display:flex; align-items:center; gap:5px;
+  }
+  .feed-thumb .stale-flag{
+    position:absolute; inset:0; background:rgba(255,77,90,0.18); backdrop-filter:blur(1px);
+    display:flex; align-items:center; justify-content:center;
+    font-size:11px; font-weight:800; color:#fff; letter-spacing:.5px;
+    opacity:0; transition:opacity .3s; pointer-events:none;
+  }
+  .feed-thumb .stale-flag.show{opacity:1;}
+
+  .op-metrics{display:flex; gap:0; padding:0 16px 16px; margin-top:auto;}
+  .op-metrics .m{flex:1;}
+  .op-metrics .m .v{font-size:20px; font-weight:800; font-variant-numeric:tabular-nums; font-family:var(--mono); line-height:1.15;}
+  .op-metrics .m .l{font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:.5px; font-weight:700; margin-top:2px;}
+  .op-card.cyan .op-metrics .m .v{color:var(--cyan);}
+  .op-card.orange .op-metrics .m .v{color:var(--orange);}
+
+  .op-body{padding:0 16px 16px;}
+  .mini-row{display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-top:1px solid var(--grid); font-size:12px;}
+  .mini-row:first-child{border-top:none;}
+  .mini-row .k{color:var(--muted);}
+  .mini-row .v{font-weight:700; font-variant-numeric:tabular-nums; font-family:var(--mono);}
+
+  .radar-mini{position:relative; width:72px; height:72px; margin:6px auto 2px; flex-shrink:0;}
+  .radar-mini .ring{position:absolute; inset:0; border-radius:50%; border:1px solid var(--grid);}
+  .radar-mini .ring.r2{inset:14px;} .radar-mini .ring.r3{inset:28px;}
+  .radar-mini .sweep{
+    position:absolute; inset:0; border-radius:50%;
+    background:conic-gradient(from 0deg, rgba(255,138,61,0.5), transparent 70deg);
+    animation:spin 2.4s linear infinite;
+    -webkit-mask:radial-gradient(circle, transparent 0%, black 3%);
+            mask:radial-gradient(circle, transparent 0%, black 3%);
+  }
+  .radar-mini .sweep.paused{animation-play-state:paused; opacity:.2;}
+  @keyframes spin{to{transform:rotate(360deg);}}
+  .radar-mini .center{position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-size:14px; font-weight:800;}
+
+  /* ---------- alert feed ---------- */
+  /* A soft layered shadow rather than a flat border-only card -- on a
+     light surface this is what reads as "premium" instead of "unfinished
+     admin panel"; opacity stays low (a dark-theme glow at this strength
+     would be invisible, a light-theme shadow this strong is muddy). */
+  .card, .op-card{ box-shadow:0 8px 20px -6px rgba(22,32,46,0.08), 0 2px 6px -2px rgba(22,32,46,0.05); }
+  .card{background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:18px; margin-bottom:16px;}
+  .card h2{font-size:12px; text-transform:uppercase; letter-spacing:1px; color:var(--muted); margin:0 0 14px; font-weight:800; display:flex; align-items:center; justify-content:space-between;}
+  .card h2 .count{font-size:11px; color:var(--ink-2); font-weight:600; text-transform:none; letter-spacing:0;}
+
+  .alert-feed{display:flex; flex-direction:column; gap:7px; max-height:280px; overflow-y:auto;}
+  .a-item{
+    display:flex; align-items:center; gap:11px; padding:9px 11px;
+    background:var(--surface-2); border:1px solid var(--border); border-radius:9px;
+    animation:slide-in .35s ease;
+  }
+  @keyframes slide-in{from{opacity:0; transform:translateY(-6px);} to{opacity:1; transform:translateY(0);}}
+  .a-item.flash{box-shadow:0 0 0 1px var(--steel), 0 0 14px var(--steel-glow);}
+  .a-src{width:30px; height:30px; border-radius:8px; display:flex; align-items:center; justify-content:center; font-size:13px; flex-shrink:0;}
+  .a-src.camera{background:rgba(33,212,253,0.14); color:var(--cyan);}
+  .a-src.mesh{background:rgba(255,138,61,0.14); color:var(--orange);}
+  .a-mid{flex:1; min-width:0;}
+  .a-mid .t1{font-size:12.5px; font-weight:700;}
+  .a-mid .t2{font-size:10.5px; color:var(--muted); margin-top:1px;}
+  .a-verify{font-size:9.5px; font-weight:800; padding:2px 7px; border-radius:var(--radius-sm); letter-spacing:.3px; flex-shrink:0;}
+  .a-verify.ok{background:rgba(56,224,143,0.16); color:var(--good);}
+  .a-verify.no{background:rgba(255,184,74,0.16); color:var(--warning);}
+  .a-time{font-size:10.5px; color:var(--muted); flex-shrink:0; font-variant-numeric:tabular-nums; font-family:var(--mono);}
+  .empty-hint{color:var(--muted); font-size:12.5px; text-align:center; padding:26px 0;}
+
+  /* ---------- capability matrix ---------- */
+  .cap-grid{display:grid; grid-template-columns:repeat(auto-fill, minmax(230px,1fr)); gap:10px;}
+  .cap-item{
+    display:flex; align-items:flex-start; gap:10px; padding:12px 13px;
+    background:var(--surface-2); border:1px solid var(--border); border-radius:10px;
+  }
+  .cap-icon{width:22px; height:22px; border-radius:6px; flex-shrink:0; display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:900; margin-top:1px;}
+  .cap-icon.live{background:rgba(56,224,143,0.18); color:var(--good);}
+  .cap-icon.partial{background:rgba(255,184,74,0.18); color:var(--warning);}
+  .cap-icon.planned{background:rgba(135,134,142,0.18); color:var(--muted);}
+  .cap-text .t1{font-size:12.5px; font-weight:700;}
+  .cap-text .t2{font-size:11px; color:var(--muted); margin-top:2px; line-height:1.4;}
+  .cap-legend{display:flex; gap:16px; margin-top:14px; font-size:11px; color:var(--muted); flex-wrap:wrap;}
+  .cap-legend span{display:inline-flex; align-items:center; gap:6px;}
+  .sw{width:10px; height:10px; border-radius:3px; display:inline-block; flex-shrink:0;}
+
+  /* ---------- mission map ---------- */
+  .map-wrap{position:relative; width:100%; aspect-ratio:1/1; max-height:520px; margin:0 auto; background:var(--surface-2); border:1px solid var(--border); border-radius:10px; overflow:hidden;}
+  #mission-canvas{width:100%; height:100%; display:block;}
+  .map-sim-badge{
+    position:absolute; top:10px; left:10px; font-size:10px; font-weight:800; letter-spacing:.4px;
+    color:var(--warning); background:rgba(5,8,11,0.75); backdrop-filter:blur(3px);
+    padding:5px 10px; border-radius:var(--radius-sm); border:1px solid rgba(255,184,74,0.35);
+  }
+  .map-scale{
+    position:absolute; bottom:10px; right:12px; font-size:10.5px; color:var(--muted);
+    background:rgba(5,8,11,0.6); padding:3px 8px; border-radius:6px;
+  }
+  .hazard-live-badge{
+    position:absolute; top:10px; right:12px; font-size:10px; font-weight:800; letter-spacing:.4px;
+    color:#fff; background:rgba(255,77,90,0.85); backdrop-filter:blur(3px);
+    padding:5px 10px; border-radius:var(--radius-sm); animation:pulse 1.4s ease-in-out infinite;
+  }
+
+  /* ---------- coverage bar ---------- */
+  .coverage-row{display:flex; align-items:center; gap:10px; margin-top:12px;}
+  .coverage-bar{flex:1; height:7px; border-radius:4px; background:var(--grid); overflow:hidden;}
+  .coverage-fill{height:100%; border-radius:4px; background:linear-gradient(90deg, var(--steel), #a8c8ef); transition:width .8s ease;}
+  .coverage-label{font-size:11px; color:var(--muted); white-space:nowrap; font-variant-numeric:tabular-nums; font-family:var(--mono);}
+
+  /* ---------- visual odometry ---------- */
+  .vo-wrap{position:relative; width:100%; height:260px; background:var(--surface-2); border:1px solid var(--border); border-radius:10px; overflow:hidden;}
+  #vo-canvas{width:100%; height:100%; display:block;}
+  .vo-badge{
+    position:absolute; top:10px; left:10px; font-size:10px; font-weight:800; letter-spacing:.4px;
+    color:var(--muted); background:rgba(5,8,11,0.75); backdrop-filter:blur(3px);
+    padding:5px 10px; border-radius:var(--radius-sm); border:1px solid rgba(232,240,243,0.15);
+  }
+  .vo-badge.ok{color:var(--good); border-color:rgba(56,224,143,0.35);}
+  .vo-badge.lost{color:var(--critical); border-color:rgba(255,77,90,0.35); animation:pulse 1.4s ease-in-out infinite;}
+  .vo-badge.uncalibrated{color:var(--warning); border-color:rgba(255,184,74,0.35);}
+  .vo-stats{
+    position:absolute; bottom:10px; right:12px; font-size:10.5px; color:var(--muted);
+    background:rgba(5,8,11,0.6); padding:3px 8px; border-radius:6px; font-variant-numeric:tabular-nums; font-family:var(--mono);
+  }
+  .vo-caption{font-size:10.5px; color:var(--muted); line-height:1.6; margin-top:10px;}
+
+  /* ---------- mission report ---------- */
+  .report-box{
+    background:var(--surface-2); border:1px solid var(--border); border-radius:10px;
+    padding:14px 16px; font-family:ui-monospace,"SF Mono",Menlo,monospace; font-size:12px;
+    line-height:1.7; color:var(--ink-2); white-space:pre-wrap; margin:0;
+  }
+
+  /* ---------- priority queue ---------- */
+  .priority-list{display:flex; flex-direction:column; gap:8px; max-height:340px; overflow-y:auto;}
+  .p-item{
+    display:flex; align-items:center; gap:12px; padding:10px 12px;
+    background:var(--surface-2); border:1px solid var(--border); border-radius:10px;
+  }
+  .p-item.critical{border-color:rgba(255,77,90,0.45); background:rgba(255,77,90,0.07);}
+  .p-rank{
+    width:26px; height:26px; border-radius:8px; flex-shrink:0;
+    display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:800;
+    background:var(--surface); color:var(--muted);
+  }
+  .p-item:nth-child(1) .p-rank{background:rgba(255,184,74,0.2); color:var(--warning);}
+  .p-mid{flex:1; min-width:0;}
+  .p-mid .t1{font-size:12.5px; font-weight:700;}
+  .p-mid .chips{display:flex; flex-wrap:wrap; gap:5px; margin-top:5px;}
+  .p-chip{font-size:9.5px; font-weight:700; padding:2px 7px; border-radius:var(--radius-sm); background:var(--surface); color:var(--muted); border:1px solid var(--border);}
+  .p-chip.critical-chip{background:rgba(255,77,90,0.16); color:#ff8f8f; border-color:rgba(255,77,90,0.3);}
+  .p-score{font-size:17px; font-weight:800; color:var(--steel); flex-shrink:0; font-variant-numeric:tabular-nums; font-family:var(--mono);}
+
+  /* ---------- flat chart wrap (no absolute overlays) ---------- */
+  .chart-wrap-flat{position:relative; width:100%; height:180px;}
+  #timeline-canvas{width:100%; height:100%; display:block;}
+
+  /* ---------- hazard feed ---------- */
+  .hazard-feed{display:flex; flex-direction:column; gap:7px; max-height:220px; overflow-y:auto;}
+  .h-item{
+    display:flex; align-items:center; gap:11px; padding:9px 11px;
+    background:var(--surface-2); border:1px solid rgba(255,77,90,0.3); border-radius:9px;
+    animation:slide-in .35s ease;
+  }
+  .h-item.flash{box-shadow:0 0 0 1px var(--critical), 0 0 14px rgba(255,77,90,0.35);}
+  .h-icon{width:30px; height:30px; border-radius:8px; display:flex; align-items:center; justify-content:center; font-size:14px; flex-shrink:0; background:rgba(255,77,90,0.16);}
+  .h-mid{flex:1; min-width:0;}
+  .h-mid .t1{font-size:12.5px; font-weight:700; text-transform:capitalize;}
+  .h-mid .t2{font-size:10.5px; color:var(--muted); margin-top:1px;}
+
+  /* ---------- health strip ---------- */
+  .health-strip{display:grid; grid-template-columns:repeat(auto-fit, minmax(130px,1fr)); gap:10px;}
+  .health-tile{background:var(--surface-2); border:1px solid var(--border); border-radius:10px; padding:11px 13px;}
+  .health-tile .l{font-size:9.5px; text-transform:uppercase; letter-spacing:.5px; color:var(--muted); font-weight:700;}
+  .health-tile .v{font-size:16px; font-weight:800; margin-top:3px; font-variant-numeric:tabular-nums; font-family:var(--mono);}
+  .health-tile .v.good{color:var(--good);} .health-tile .v.warn{color:var(--warning);} .health-tile .v.bad{color:var(--critical);}
+
+  footer{text-align:center; font-size:11px; color:var(--muted); margin-top:24px; line-height:1.7;}
+</style>
+</head>
+<body>
+<div class="shell">
+<aside class="sidebar">
+  <div class="sb-mark">
+    <div class="brand-mark">
+      <svg viewBox="0 0 24 24" fill="none" stroke="#05080b" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 2 L19 9 M12 2 L5 9 M12 2 L12 14"/>
+        <circle cx="12" cy="17" r="4"/>
+        <path d="M4 20c1.5-1.3 3.2-2 4-2M20 20c-1.5-1.3-3.2-2-4-2"/>
+      </svg>
+    </div>
+    <div><div class="sb-mark-t">SAR Rescue</div><div class="sb-mark-s">Field Terminal</div></div>
+  </div>
+  <nav class="sb-nav">
+    <a class="sb-item active" href="#top"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-7 9 7"/><path d="M5 10v9a1 1 0 001 1h4v-6h4v6h4a1 1 0 001-1v-9"/></svg>Dashboard</a>
+    <a class="sb-item" href="/ml"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="14" height="12" rx="2"/><path d="M16 10l6-3v10l-6-3"/></svg>Live Feed</a>
+    <a class="sb-item" href="#sec-map"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 20l-6-2V4l6 2 6-2 6 2v14l-6-2-6 2z"/><path d="M9 6v14M15 4v14"/></svg>Mission Map</a>
+    <a class="sb-item" href="#sec-hazards"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/></svg>Detections</a>
+    <a class="sb-item" href="#sec-detections"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V10M12 20V4M20 20v-7"/></svg>Analytics</a>
+    <a class="sb-item" href="#sec-alerts"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a6 6 0 00-6 6v3.6c0 .8-.3 1.6-.9 2.1L4 15h16l-1.1-1.3a3 3 0 01-.9-2.1V8a6 6 0 00-6-6z"/><path d="M9.5 19a2.5 2.5 0 005 0"/></svg>Alerts</a>
+    <a class="sb-item" href="#sec-mesh"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="4" r="2"/><circle cx="5" cy="19" r="2"/><circle cx="19" cy="19" r="2"/><path d="M12 6v5M12 11L6.5 17.5M12 11l5.5 6.5"/></svg>Mesh Network</a>
+    <a class="sb-item" href="#sec-report"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2h9l5 5v15H6z"/><path d="M14 2v6h6M9 13h6M9 17h6"/></svg>Mission Report</a>
+    <a class="sb-item" href="#sec-status"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l2-7 4 14 2-7h6"/></svg>System Status</a>
+    <a class="sb-item" href="#sec-status"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 00.3 1.9l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.9-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 11-4 0v-.1a1.7 1.7 0 00-1-1.6 1.7 1.7 0 00-1.9.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.9 1.7 1.7 0 00-1.5-1H3a2 2 0 110-4h.1a1.7 1.7 0 001.5-1 1.7 1.7 0 00-.3-1.9l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.9.3H9a1.7 1.7 0 001-1.5V3a2 2 0 114 0v.1a1.7 1.7 0 001 1.5 1.7 1.7 0 001.9-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.9V9a1.7 1.7 0 001.5 1H21a2 2 0 110 4h-.1a1.7 1.7 0 00-1.5 1z"/></svg>Settings</a>
+  </nav>
+  <div class="sb-offline">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 20l6-10 4 6 3-4 5 8z"/></svg>
+    <div><div class="sb-offline-t">OFFLINE-FIRST</div><div class="sb-offline-s">Local processing<br>No internet required</div></div>
+  </div>
+</aside>
+<div class="main">
+<div class="wrap" id="top">
+
+<header>
+  <div class="brand">
+    <div class="brand-mark">
+      <svg viewBox="0 0 24 24" fill="none" stroke="#05080b" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 2 L19 9 M12 2 L5 9 M12 2 L12 14"/>
+        <circle cx="12" cy="17" r="4"/>
+        <path d="M4 20c1.5-1.3 3.2-2 4-2M20 20c-1.5-1.3-3.2-2-4-2"/>
+      </svg>
+    </div>
+    <div class="brand-tag">
+      <div class="brand-tag-t">SAR RESCUE</div>
+      <div class="brand-tag-s">Disaster Response</div>
+    </div>
+    <div class="brand-full">
+      <h1>SEARCH &amp; RESCUE COMMAND CENTER</h1>
+      <div class="sub">PS 26177 &middot; Autonomous Drone &amp; LoRa Mesh &middot; Disaster Response</div>
+    </div>
+  </div>
+  <div class="cmd-strip">
+    <div class="cmd-field"><span class="k">Mission</span><span class="v cyan">PS-26177</span></div>
+    <div class="cmd-field"><span class="k">Operation</span><span class="v">Urban Search &middot; Sector 04</span></div>
+    <div class="cmd-field"><span class="k">Mission Time</span><span class="v bad" id="mission-clock">00:00:00</span></div>
+    <div class="cmd-field"><span class="k">Local Time</span><span class="v" id="local-clock">--:--:--</span><span class="k" id="local-date" style="margin-top:1px;"></span></div>
+    <div class="cmd-field"><span class="k">Mesh Nodes</span><span class="v" id="hdr-mesh-nodes">0 NODES</span><span class="k" id="hdr-mesh-sub">no link</span></div>
+    <div class="cmd-field"><span class="k">Uplink</span><span class="v" id="hdr-uplink">-- dBm</span><span class="k" id="hdr-uplink-sub">SNR --</span></div>
+  </div>
+  <div class="header-right">
+    <div class="status-pill"><span class="dot" id="sys-dot"></span><span id="sys-status">INITIALISING</span></div>
+    <div class="alert-badge" id="hdr-alert-badge">
+      <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><path d="M12 2a6 6 0 00-6 6v3.6c0 .8-.3 1.6-.9 2.1L4 15h16l-1.1-1.3a3 3 0 01-.9-2.1V8a6 6 0 00-6-6zm0 20a2.5 2.5 0 002.5-2.5h-5A2.5 2.5 0 0012 22z"/></svg>
+      <span class="v" id="hdr-alert-count">00</span>
+      <span class="l">Active<br>Alerts</span>
+    </div>
+  </div>
+</header>
+
+<div class="ops-grid">
+  <a class="op-card cyan" href="/ml" id="sec-live">
+    <div class="op-head"><span class="tag">Aerial Feed</span><span class="go">Vision AI console →</span></div>
+    <div class="feed-thumb">
+      <img src="/video_feed" alt="live drone camera feed">
+      <div class="stale-flag" id="feed-stale">FEED STALE — RECOVERING</div>
+      <div class="badge"><span class="dot good" id="feed-dot"></span><span id="feed-badge-text">LIVE</span></div>
+    </div>
+    <div class="op-metrics">
+      <div class="m"><div class="v" id="m-detected">0</div><div class="l">Survivors Seen</div></div>
+      <div class="m"><div class="v" id="m-verified">0</div><div class="l">Thermal-Verified</div></div>
+      <div class="m"><div class="v" id="m-fps">0</div><div class="l">FPS</div></div>
+    </div>
+  </a>
+
+  <a class="op-card orange" href="/gcs" id="sec-mesh">
+    <div class="op-head"><span class="tag">Mesh Link</span><span class="go">Ground Station →</span></div>
+    <div class="op-body">
+      <div class="radar-mini">
+        <div class="ring"></div><div class="ring r2"></div><div class="ring r3"></div>
+        <div class="sweep" id="mesh-sweep"></div>
+        <div class="center" id="mesh-rssi">—</div>
+      </div>
+      <div class="mini-row"><span class="k">Link</span><span class="v" id="mesh-link-text">—</span></div>
+      <div class="mini-row"><span class="k">Frames heard</span><span class="v" id="mesh-frames">0</span></div>
+      <div class="mini-row"><span class="k">Last packet</span><span class="v" id="mesh-last">—</span></div>
+    </div>
+  </a>
+
+  <div class="op-card">
+    <div class="op-head"><span class="tag">Mission Status</span><span></span></div>
+    <div class="op-body">
+      <div class="mini-row"><span class="k">Camera</span><span class="v" id="ms-camera">—</span></div>
+      <div class="mini-row"><span class="k">On-device AI</span><span class="v" id="ms-model">—</span></div>
+      <div class="mini-row"><span class="k">LoRa uplink</span><span class="v" id="ms-uplink">—</span></div>
+      <div class="mini-row"><span class="k">GPS fix</span><span class="v" style="color:var(--warning);">SIMULATED</span></div>
+      <div class="mini-row"><span class="k">Total alerts raised</span><span class="v" id="ms-alerts">0</span></div>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <h2 id="sec-map">Mission Map <span class="count">SIMULATED — no GPS hardware on this rig</span></h2>
+  <div class="map-wrap">
+    <canvas id="mission-canvas"></canvas>
+    <div class="map-sim-badge">SIMULATED POSITION</div>
+    <div class="map-scale" id="map-scale">400m × 400m search grid</div>
+    <div class="hazard-live-badge" id="hazard-live-badge" hidden></div>
+  </div>
+  <div class="coverage-row">
+    <div class="coverage-bar"><div class="coverage-fill" id="coverage-fill" style="width:0%;"></div></div>
+    <span class="coverage-label" id="coverage-label">0% swept this pass</span>
+  </div>
+  <div class="cap-legend" style="margin-top:10px;">
+    <span><i class="sw" style="background:var(--steel);"></i>Drone (simulated track)</span>
+    <span><i class="sw" style="background:var(--good);"></i>Survivor — thermal-verified</span>
+    <span><i class="sw" style="background:var(--warning);"></i>Survivor — unconfirmed</span>
+    <span><i class="sw" style="background:var(--orange);"></i>Survivor — via LoRa mesh</span>
+    <span><i class="sw" style="background:#d03b3b; clip-path:polygon(50% 0,100% 100%,0 100%);"></i>Hazard — fire</span>
+    <span><i class="sw" style="background:#9a9aa2; clip-path:polygon(50% 0,100% 100%,0 100%);"></i>Hazard — smoke</span>
+  </div>
+</div>
+
+<div class="card">
+  <h2 id="sec-odometry">Visual Odometry <span class="count" id="vo-status-text">connecting…</span></h2>
+  <div class="vo-wrap">
+    <canvas id="vo-canvas"></canvas>
+    <div class="vo-badge" id="vo-badge">—</div>
+    <div class="vo-stats" id="vo-stats">— matched · — frames</div>
+  </div>
+  <div class="vo-caption">
+    Real camera-derived path — ORB feature tracking between frames, pose recovered from the essential matrix.
+    Not the simulated GPS track above: relative units only (not metres), drifts over a long mission with no
+    loop closure to correct it, and needs enough visual texture in frame to lock on at all.
+  </div>
+</div>
+
+<div class="card">
+  <h2 id="sec-report">Mission Report <span class="count" id="report-time">not generated yet</span></h2>
+  <pre class="report-box" id="report-box">Generating first report…</pre>
+</div>
+
+<div class="card">
+  <h2 id="sec-priority">Priority Queue <span class="count">ranked by urgency, not by time</span></h2>
+  <div class="priority-list" id="priority-list">
+    <div class="empty-hint">No survivors detected yet.</div>
+  </div>
+</div>
+
+<div class="card">
+  <h2 id="sec-detections">Detections Timeline <span class="count">last 20 minutes</span></h2>
+  <div class="chart-wrap-flat">
+    <canvas id="timeline-canvas"></canvas>
+  </div>
+  <div class="cap-legend" style="margin-top:10px;">
+    <span><i class="sw" style="background:#22d3ee;"></i>Survivor detections</span>
+    <span><i class="sw" style="background:#d03b3b;"></i>Hazard events</span>
+  </div>
+</div>
+
+<div class="card">
+  <h2 id="sec-hazards">Hazard Classification <span class="count" id="hazard-model-status">checking model…</span></h2>
+  <div class="hazard-feed" id="hazard-feed">
+    <div class="empty-hint">No hazards detected — fire/smoke model checking every 2s…</div>
+  </div>
+</div>
+
+<div class="card">
+  <h2 id="sec-alerts">Live Alert Feed <span class="count" id="feed-count">0 total</span></h2>
+  <div class="alert-feed" id="alert-feed">
+    <div class="empty-hint">No detections yet — waiting on the camera and the mesh…</div>
+  </div>
+</div>
+
+<div class="card">
+  <h2 id="sec-status">Mission Capability Status</h2>
+  <div class="cap-grid" id="cap-grid"></div>
+  <div class="cap-legend">
+    <span><span class="cap-icon live" style="width:14px;height:14px;font-size:9px;">✓</span>Live</span>
+    <span><span class="cap-icon partial" style="width:14px;height:14px;font-size:9px;">~</span>Partial / simulated</span>
+    <span><span class="cap-icon planned" style="width:14px;height:14px;font-size:9px;">○</span>Planned, not built</span>
+  </div>
+</div>
+
+<div class="card">
+  <h2 id="sec-health">System Health</h2>
+  <div class="health-strip">
+    <div class="health-tile"><div class="l">CPU Temp</div><div class="v" id="h-temp">—</div></div>
+    <div class="health-tile"><div class="l">CPU Load</div><div class="v" id="h-cpu">—</div></div>
+    <div class="health-tile"><div class="l">RAM</div><div class="v" id="h-ram">—</div></div>
+    <div class="health-tile"><div class="l">Frames Processed</div><div class="v" id="h-frames">—</div></div>
+    <div class="health-tile"><div class="l">Watchdog</div><div class="v good">ARMED</div></div>
+  </div>
+</div>
+
+<footer>
+  Offline-first ground station — everything above runs on this local network, no internet required.<br>
+  Simulated capabilities are labelled as such throughout; nothing here overstates what the hardware actually does.
+</footer>
+</div>
+</div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const missionStart = Date.now();
+
+function fmtClock(s){
+  s = Math.max(0, Math.floor(s));
+  const h = String(Math.floor(s/3600)).padStart(2,'0');
+  const m = String(Math.floor((s%3600)/60)).padStart(2,'0');
+  const sec = String(s%60).padStart(2,'0');
+  return `${h}:${m}:${sec}`;
+}
+function timeAgo(ts){
+  const s = Math.max(0, Math.floor(Date.now()/1000 - ts));
+  if(s<60) return s+'s ago';
+  if(s<3600) return Math.floor(s/60)+'m ago';
+  return Math.floor(s/3600)+'h ago';
+}
+function fmtDuration(s){
+  if(s==null) return '—';
+  s = Math.floor(s);
+  if(s<60) return s+'s';
+  if(s<3600) return Math.floor(s/60)+'m '+(s%60)+'s';
+  return Math.floor(s/3600)+'h '+Math.floor((s%3600)/60)+'m';
+}
+
+let uptimeBase = 0;
+setInterval(()=>{
+  $('mission-clock').textContent = fmtClock(uptimeBase + (Date.now()-missionStart)/1000);
+  const now = new Date();
+  $('local-clock').textContent = now.toTimeString().slice(0,8);
+  $('local-date').textContent = now.toLocaleDateString('en-GB', {day:'2-digit', month:'short', year:'numeric'});
+}, 1000);
+
+/* ---------- ML / camera polling ---------- */
+let lastFrameCount = null, lastFrameChangeAt = Date.now();
+async function pollMl(){
+  try{
+    const r = await fetch('/api/stats'); const d = await r.json();
+    if(uptimeBase===0) uptimeBase = d.uptime_s;
+
+    $('m-detected').textContent = d.persons_detected;
+    $('m-verified').textContent = d.persons_verified;
+    $('m-fps').textContent = d.fps.toFixed(1);
+
+    const srcLabel = d.camera_source==='phone' ? ' (PHONE)' : d.camera_source==='pi_camera_module' ? ' (PI CAM)' : '';
+    $('ms-camera').textContent = d.camera_active ? ('ACTIVE'+srcLabel) : 'OFFLINE';
+    $('ms-camera').style.color = d.camera_active ? 'var(--good)' : 'var(--critical)';
+    $('ms-model').textContent = (d.model_short||'—') + ' @ ' + d.imgsz + 'px';
+
+    $('h-temp').textContent = d.cpu_temp.toFixed(1) + '°C';
+    $('h-temp').className = 'v ' + (d.cpu_temp>80 ? 'bad' : d.cpu_temp>70 ? 'warn' : 'good');
+    $('h-cpu').textContent = d.cpu_usage.toFixed(0) + '%';
+    $('h-ram').textContent = d.ram_usage.toFixed(0) + '%';
+    $('h-frames').textContent = d.total_frames;
+
+    // frame-freshness / stall detection -- same signal the watchdog uses
+    const stale = document.getElementById('feed-stale');
+    if(d.total_frames !== lastFrameCount){
+      lastFrameCount = d.total_frames;
+      lastFrameChangeAt = Date.now();
+      stale.classList.remove('show');
+      $('feed-dot').className = 'dot good';
+      $('feed-badge-text').textContent = 'LIVE';
+    } else if(Date.now() - lastFrameChangeAt > 8000){
+      stale.classList.add('show');
+      $('feed-dot').className = 'dot bad';
+      $('feed-badge-text').textContent = 'STALE';
+    }
+
+    updateSystemStatus();
+  }catch(e){
+    $('ms-camera').textContent = 'UNREACHABLE'; $('ms-camera').style.color = 'var(--critical)';
+  }
+}
+
+/* ---------- mesh polling ---------- */
+let meshConnected = false;
+async function pollMesh(){
+  try{
+    const r = await fetch('/api/mesh/status'); const d = await r.json();
+    meshConnected = d.connected;
+    $('mesh-rssi').textContent = d.last_rssi_dbm!=null ? d.last_rssi_dbm : '—';
+    $('mesh-link-text').textContent = d.connected ? 'ONLINE' : (d.seconds_since_heartbeat!=null ? 'STALE' : 'NO SIGNAL');
+    $('mesh-link-text').style.color = d.connected ? 'var(--good)' : (d.seconds_since_heartbeat!=null ? 'var(--warning)' : 'var(--critical)');
+    $('mesh-frames').textContent = d.total_frames;
+    $('mesh-last').textContent = d.seconds_since_heartbeat!=null ? fmtDuration(d.seconds_since_heartbeat)+' ago' : '—';
+    $('ms-uplink').textContent = d.connected ? 'CONNECTED' : 'NO LINK';
+    $('ms-uplink').style.color = d.connected ? 'var(--good)' : 'var(--warning)';
+    $('mesh-sweep').classList.toggle('paused', !d.connected);
+
+    // Header telemetry strip -- this bridge only ever represents ONE GCS
+    // relay link, so "NODES" here means "is that one real link up", never
+    // a fabricated multi-node mesh count.
+    $('hdr-mesh-nodes').textContent = d.connected ? '1 NODE' : '0 NODES';
+    $('hdr-mesh-nodes').className = 'v ' + (d.connected ? 'good' : 'bad');
+    $('hdr-mesh-sub').textContent = d.connected ? 'gcs link' : 'no link';
+    $('hdr-uplink').textContent = d.last_rssi_dbm!=null ? d.last_rssi_dbm+' dBm' : '-- dBm';
+    $('hdr-uplink').className = 'v ' + (d.connected ? 'cyan' : '');
+    $('hdr-uplink-sub').textContent = d.last_snr_db!=null ? 'SNR '+d.last_snr_db.toFixed(1)+' dB' : 'SNR --';
+
+    updateSystemStatus();
+  }catch(e){
+    meshConnected = false;
+    $('mesh-link-text').textContent = 'GATEWAY UNREACHABLE';
+  }
+}
+
+function updateSystemStatus(){
+  const dot = $('sys-dot'), txt = $('sys-status');
+  const cameraOk = lastFrameCount!==null && (Date.now()-lastFrameChangeAt < 8000);
+  if(cameraOk && meshConnected){
+    dot.className='dot good'; txt.textContent='ALL SYSTEMS NOMINAL';
+  } else if(cameraOk || meshConnected){
+    dot.className='dot warn'; txt.textContent='PARTIAL LINK';
+  } else {
+    dot.className='dot bad'; txt.textContent='SYSTEMS DEGRADED';
+  }
+}
+
+/* ---------- unified alert feed ---------- */
+const feedEl = $('alert-feed');
+let seenIds = new Set();
+let alertCount = 0;
+// Status as of when each alert was last seen by this page -- an
+// acknowledge/resolve made from the mobile app after that won't be
+// reflected here without a reload, since this dashboard only fetches the
+// list once and then streams new arrivals (see below). Good enough for
+// "how many need attention right now" at a glance; not a live-sync source
+// of truth for status.
+const alertStatus = new Map();
+function updateHeaderAlertBadge(){
+  let active = 0;
+  for(const s of alertStatus.values()) if(s!=='resolved' && s!=='false_alarm') active++;
+  $('hdr-alert-count').textContent = String(active).padStart(2,'0');
+  $('hdr-alert-badge').classList.toggle('quiet', active===0);
+}
+function renderAlert(a, prepend){
+  alertStatus.set(a.id, a.status||'new');
+  updateHeaderAlertBadge();
+  if(seenIds.has(a.id)) return;
+  seenIds.add(a.id);
+  alertCount++; $('feed-count').textContent = alertCount + ' total';
+  $('ms-alerts').textContent = alertCount;
+  if(feedEl.querySelector('.empty-hint')) feedEl.innerHTML='';
+
+  const isMesh = a.source==='lora-mesh';
+  const el = document.createElement('div');
+  el.className = 'a-item flash';
+  let verifyBadge = '';
+  if(a.thermal_verified===true) verifyBadge = '<span class="a-verify ok">THERMAL OK</span>';
+  else if(a.thermal_verified===false) verifyBadge = '<span class="a-verify no">UNCONFIRMED</span>';
+  el.innerHTML = `
+    <div class="a-src ${isMesh?'mesh':'camera'}">${isMesh?'📡':'👁'}</div>
+    <div class="a-mid">
+      <div class="t1">${a.person_count} survivor(s) &middot; ${a.confidence.toFixed(1)}% confidence</div>
+      <div class="t2">${isMesh ? 'via LoRa mesh &middot; '+(a.route||'DIRECT')+' &middot; '+(a.rssi_dbm!=null?a.rssi_dbm+'dBm':'') : 'on-board camera'}</div>
+    </div>
+    ${verifyBadge}
+    <span class="a-time">${timeAgo(a.created_at)}</span>
+  `;
+  prepend ? feedEl.prepend(el) : feedEl.appendChild(el);
+  setTimeout(()=>el.classList.remove('flash'), 1500);
+  while(feedEl.children.length>20) feedEl.removeChild(feedEl.lastChild);
+
+  if(a.sim_x_m != null && a.sim_y_m != null){
+    const color = isMesh ? '#eb6834' : (a.thermal_verified ? '#0ca30c' : '#fab219');
+    mapMarkers.push({x_m: a.sim_x_m, y_m: a.sim_y_m, color});
+    while(mapMarkers.length>50) mapMarkers.shift();
+  }
+}
+fetch('/api/alerts').then(r=>r.json()).then(list=>{
+  list.slice(0,15).forEach(a=>renderAlert(a,false));
+});
+const es = new EventSource('/api/alerts/stream');
+es.onmessage = (e)=>{ try{ renderAlert(JSON.parse(e.data), true); }catch(_){} };
+
+/* ---------- mission map (canvas, simulated position -- see /api/mission/position) ---------- */
+const mapCanvas = $('mission-canvas');
+const mapCtx = mapCanvas.getContext('2d');
+let missionAreaM = 400;
+let droneTrail = [];
+let lastDronePos = null;
+const mapMarkers = [];
+const hazardMarkers = [];
+
+function mapToCanvas(x_m, y_m){
+  const w = mapCanvas.width, h = mapCanvas.height;
+  return [(x_m/missionAreaM)*w, (y_m/missionAreaM)*h];
+}
+
+function drawMap(dronePos){
+  const dpr = window.devicePixelRatio||1;
+  const cssW = mapCanvas.clientWidth, cssH = mapCanvas.clientHeight;
+  if(cssW===0||cssH===0) return;
+  if(mapCanvas.width !== Math.round(cssW*dpr)){
+    mapCanvas.width = Math.round(cssW*dpr); mapCanvas.height = Math.round(cssH*dpr);
+  }
+  const w = mapCanvas.width, h = mapCanvas.height;
+  mapCtx.clearRect(0,0,w,h);
+
+  mapCtx.strokeStyle = '#26262b'; mapCtx.lineWidth = 1;
+  for(let m=0; m<=missionAreaM; m+=50){
+    const [gx] = mapToCanvas(m,0); const [,gy] = mapToCanvas(0,m);
+    mapCtx.beginPath(); mapCtx.moveTo(gx,0); mapCtx.lineTo(gx,h); mapCtx.stroke();
+    mapCtx.beginPath(); mapCtx.moveTo(0,gy); mapCtx.lineTo(w,gy); mapCtx.stroke();
+  }
+
+  mapMarkers.forEach(mk=>{
+    const [mx,my] = mapToCanvas(mk.x_m, mk.y_m);
+    mapCtx.beginPath(); mapCtx.arc(mx,my,6*dpr,0,Math.PI*2);
+    mapCtx.fillStyle = mk.color; mapCtx.fill();
+    mapCtx.strokeStyle = 'rgba(0,0,0,0.45)'; mapCtx.lineWidth = 1.5*dpr; mapCtx.stroke();
+  });
+
+  // hazard markers: triangles, distinct from the circular survivor markers
+  hazardMarkers.forEach(mk=>{
+    const [mx,my] = mapToCanvas(mk.x_m, mk.y_m);
+    const s = 7*dpr;
+    mapCtx.beginPath();
+    mapCtx.moveTo(mx, my-s); mapCtx.lineTo(mx+s, my+s); mapCtx.lineTo(mx-s, my+s);
+    mapCtx.closePath();
+    mapCtx.fillStyle = mk.color; mapCtx.fill();
+    mapCtx.strokeStyle = 'rgba(0,0,0,0.5)'; mapCtx.lineWidth = 1.5*dpr; mapCtx.stroke();
+  });
+
+  if(droneTrail.length>1){
+    mapCtx.beginPath();
+    droneTrail.forEach((p,i)=>{
+      const [tx,ty] = mapToCanvas(p.x_m,p.y_m);
+      i===0 ? mapCtx.moveTo(tx,ty) : mapCtx.lineTo(tx,ty);
+    });
+    mapCtx.strokeStyle = 'rgba(33,212,253,0.5)'; mapCtx.lineWidth = 2*dpr;
+    mapCtx.setLineDash([4*dpr,4*dpr]); mapCtx.stroke(); mapCtx.setLineDash([]);
+  }
+
+  if(dronePos){
+    const [dx,dy] = mapToCanvas(dronePos.x_m, dronePos.y_m);
+    mapCtx.beginPath(); mapCtx.arc(dx,dy,9*dpr,0,Math.PI*2);
+    mapCtx.fillStyle = 'rgba(33,212,253,0.2)'; mapCtx.fill();
+    mapCtx.beginPath(); mapCtx.arc(dx,dy,5*dpr,0,Math.PI*2);
+    mapCtx.fillStyle = '#7ea6d9'; mapCtx.fill();
+    mapCtx.strokeStyle = '#fff'; mapCtx.lineWidth = 1.5*dpr; mapCtx.stroke();
+  }
+}
+
+async function pollMission(){
+  try{
+    const r = await fetch('/api/mission/position'); const d = await r.json();
+    missionAreaM = d.area_m;
+    $('map-scale').textContent = `${d.area_m}m × ${d.area_m}m search grid (simulated)`;
+    $('coverage-fill').style.width = d.coverage_pct + '%';
+    $('coverage-label').textContent = `${d.coverage_pct.toFixed(0)}% swept this pass`;
+    droneTrail.push({x_m:d.x_m, y_m:d.y_m});
+    if(droneTrail.length>150) droneTrail.shift();
+    lastDronePos = d;
+    drawMap(d);
+  }catch(e){ /* skip this tick, keep the last drawn frame */ }
+}
+window.addEventListener('resize', ()=> drawMap(lastDronePos));
+pollMission();
+setInterval(pollMission, 2000);
+
+/* ---------- visual odometry (/api/vo/trajectory) ---------- */
+const voCanvas = $('vo-canvas');
+const voCtx = voCanvas.getContext('2d');
+let voTrajectory = [];
+
+function drawVo(){
+  const dpr = window.devicePixelRatio||1;
+  const cssW = voCanvas.clientWidth, cssH = voCanvas.clientHeight;
+  if(cssW===0||cssH===0) return;
+  if(voCanvas.width !== Math.round(cssW*dpr)){
+    voCanvas.width = Math.round(cssW*dpr); voCanvas.height = Math.round(cssH*dpr);
+  }
+  const w = voCanvas.width, h = voCanvas.height;
+  voCtx.clearRect(0,0,w,h);
+
+  if(voTrajectory.length < 2){
+    voCtx.fillStyle = 'rgba(232,240,243,0.3)'; voCtx.font = `${12*dpr}px sans-serif`; voCtx.textAlign = 'center';
+    voCtx.fillText('Waiting for camera motion…', w/2, h/2);
+    return;
+  }
+
+  // No fixed reference area like the simulated map has -- this path is
+  // relative to wherever tracking started, so fit the view to whatever
+  // extent it has actually covered so far rather than a fixed scale.
+  let minX=Infinity, maxX=-Infinity, minY=Infinity, maxY=-Infinity;
+  voTrajectory.forEach(p=>{
+    minX = Math.min(minX,p.x_m); maxX = Math.max(maxX,p.x_m);
+    minY = Math.min(minY,p.y_m); maxY = Math.max(maxY,p.y_m);
+  });
+  const spanX = Math.max(maxX-minX, 1), spanY = Math.max(maxY-minY, 1);
+  const pad = 24*dpr;
+  const scale = Math.min((w-pad*2)/spanX, (h-pad*2)/spanY);
+  const offX = pad + (w-pad*2-spanX*scale)/2, offY = pad + (h-pad*2-spanY*scale)/2;
+  const toXY = (p)=> [offX + (p.x_m-minX)*scale, offY + (p.y_m-minY)*scale];
+
+  voCtx.beginPath();
+  voTrajectory.forEach((p,i)=>{
+    const [x,y] = toXY(p);
+    i===0 ? voCtx.moveTo(x,y) : voCtx.lineTo(x,y);
+  });
+  voCtx.strokeStyle = 'rgba(33,212,253,0.85)'; voCtx.lineWidth = 2*dpr; voCtx.stroke();
+
+  const [sx,sy] = toXY(voTrajectory[0]);
+  voCtx.beginPath(); voCtx.arc(sx,sy,4*dpr,0,Math.PI*2);
+  voCtx.fillStyle = 'rgba(232,240,243,0.5)'; voCtx.fill();
+
+  const last = voTrajectory[voTrajectory.length-1];
+  const [lx,ly] = toXY(last);
+  voCtx.beginPath(); voCtx.arc(lx,ly,6*dpr,0,Math.PI*2);
+  voCtx.fillStyle = '#7ea6d9'; voCtx.fill();
+  voCtx.strokeStyle = '#fff'; voCtx.lineWidth = 1.5*dpr; voCtx.stroke();
+}
+
+async function pollVo(){
+  try{
+    const r = await fetch('/api/vo/trajectory?limit=800'); const d = await r.json();
+    voTrajectory = d.points || [];
+    const badge = $('vo-badge');
+    if(!d.camera_active){
+      badge.className = 'vo-badge lost'; badge.textContent = 'NO CAMERA';
+    } else if(!d.calibrated){
+      badge.className = 'vo-badge uncalibrated'; badge.textContent = 'UNCALIBRATED ESTIMATE';
+    } else if(d.tracking_ok){
+      badge.className = 'vo-badge ok'; badge.textContent = 'TRACKING';
+    } else {
+      badge.className = 'vo-badge lost'; badge.textContent = 'TRACKING LOST';
+    }
+    $('vo-status-text').textContent = !d.camera_active
+      ? 'no camera attached'
+      : (d.tracking_ok ? 'live — camera-derived' : 'lost — low texture or no motion');
+    $('vo-stats').textContent = `${d.matched_features} matched · ${d.frames_processed} frames`;
+    drawVo();
+  }catch(e){ /* skip this tick, keep the last drawn frame */ }
+}
+window.addEventListener('resize', drawVo);
+pollVo();
+setInterval(pollVo, 1500);
+
+/* ---------- hazard classification (fire/smoke) ---------- */
+const hazardFeedEl = $('hazard-feed');
+let hazardSeenIds = new Set();
+function renderHazard(e, prepend){
+  if(hazardSeenIds.has(e.id)) return;
+  hazardSeenIds.add(e.id);
+  if(hazardFeedEl.querySelector('.empty-hint')) hazardFeedEl.innerHTML='';
+
+  const icon = e.hazard_type==='fire' ? '🔥' : e.hazard_type==='smoke' ? '💨' : '⚠';
+  const el = document.createElement('div');
+  el.className = 'h-item flash';
+  el.innerHTML = `
+    <div class="h-icon">${icon}</div>
+    <div class="h-mid">
+      <div class="t1">${e.hazard_type} &middot; ${e.confidence.toFixed(1)}% confidence</div>
+      <div class="t2">from on-board camera &middot; simulated position</div>
+    </div>
+    <span class="a-time">${timeAgo(e.created_at)}</span>
+  `;
+  prepend ? hazardFeedEl.prepend(el) : hazardFeedEl.appendChild(el);
+  setTimeout(()=>el.classList.remove('flash'), 1500);
+  while(hazardFeedEl.children.length>15) hazardFeedEl.removeChild(hazardFeedEl.lastChild);
+
+  if(e.sim_x_m != null && e.sim_y_m != null){
+    hazardMarkers.push({x_m: e.sim_x_m, y_m: e.sim_y_m, color: e.hazard_type==='fire' ? '#d03b3b' : '#9a9aa2'});
+    while(hazardMarkers.length>30) hazardMarkers.shift();
+    drawMap(lastDronePos);
+  }
+}
+fetch('/api/hazards').then(r=>r.json()).then(list=>{
+  list.slice(0,15).forEach(e=>renderHazard(e,false));
+});
+const hazardEs = new EventSource('/api/hazards/stream');
+hazardEs.onmessage = (e)=>{ try{ renderHazard(JSON.parse(e.data), true); }catch(_){} };
+
+async function pollHazardActive(){
+  try{
+    const r = await fetch('/api/hazards/active'); const d = await r.json();
+    $('hazard-model-status').textContent = d.model_loaded
+      ? `checked ${d.total_checks}x` : 'model not loaded';
+    const badge = $('hazard-live-badge');
+    if(d.hazards && d.hazards.length){
+      badge.hidden = false;
+      badge.textContent = d.hazards.map(h=>h.type.toUpperCase()+' '+h.confidence.toFixed(0)+'%').join(' + ');
+    } else {
+      badge.hidden = true;
+    }
+  }catch(e){ $('hazard-model-status').textContent = 'unreachable'; }
+}
+pollHazardActive();
+setInterval(pollHazardActive, 2500);
+
+/* ---------- capability matrix (per the SIH problem statement) ---------- */
+const capabilities = [
+  {status:'live', t:'Emergency Alerting', d:'Automatic alerts with confidence + position, pushed to the mobile app and this console in real time.'},
+  {status:'live', t:'Offline Resilience', d:'LoRa mesh + offline-first mobile app — no internet dependency for the core alert path.'},
+  {status:'live', t:'On-Device AI Inference', d:'YOLO11s runs locally on the Pi (NCNN) — no cloud round-trip for person detection.'},
+  {status:'live', t:'Command Center Dashboard', d:'This console — live feeds, survivor detections, mesh link, mission status.'},
+  {status:'partial', t:'Multi-Sensor Fusion', d:'Thermal is a colour-mapped simulation from the RGB camera, cross-checked against a skin-tone heuristic. No GPS/IMU wired in yet.'},
+  {status:'partial', t:'Hazard Classification', d:'Fire + smoke detection is live, running a real pretrained model (not trained in-house — 92.5% mAP50 on its own validation set). Flood/debris/structural hazards still not covered.'},
+  {status:'partial', t:'Geo-Tagged Mapping', d:'Live map with a search-pattern track and survivor markers — position is simulated (no GPS module), clearly labelled on the map itself.'},
+  {status:'partial', t:'Visual Odometry', d:'Real ORB feature tracking + essential-matrix pose recovery from the live camera feed — a genuine relative path, not simulated. No loop closure (drifts over a long mission) and no metric scale without a calibrated camera + external reference.'},
+  {status:'planned', t:'Autonomous Navigation', d:'No flight controller or airframe in this build — Pi handles perception + comms only.'},
+];
+const capGrid = $('cap-grid');
+capabilities.forEach(c=>{
+  const icon = c.status==='live' ? '✓' : c.status==='partial' ? '~' : '○';
+  const el = document.createElement('div');
+  el.className = 'cap-item';
+  el.innerHTML = `<div class="cap-icon ${c.status}">${icon}</div><div class="cap-text"><div class="t1">${c.t}</div><div class="t2">${c.d}</div></div>`;
+  capGrid.appendChild(el);
+});
+
+/* ---------- priority queue (/api/triage) ---------- */
+async function pollPriority(){
+  try{
+    const r = await fetch('/api/triage'); const list = await r.json();
+    const el = $('priority-list');
+    if(!list.length){ el.innerHTML = '<div class="empty-hint">No survivors detected yet.</div>'; return; }
+    el.innerHTML = '';
+    list.slice(0,12).forEach((a, i)=>{
+      const critical = !!a.near_hazard_type;
+      const row = document.createElement('div');
+      row.className = 'p-item' + (critical ? ' critical' : '');
+      const chips = a.priority.reasons.map(r =>
+        `<span class="p-chip${critical && r.includes('active') ? ' critical-chip' : ''}">${r}</span>`
+      ).join('');
+      row.innerHTML = `
+        <div class="p-rank">${i+1}</div>
+        <div class="p-mid">
+          <div class="t1">${a.person_count} survivor(s) &middot; ${a.source==='lora-mesh'?'via LoRa mesh':'on-board camera'}</div>
+          <div class="chips">${chips}</div>
+        </div>
+        <div class="p-score">${a.priority.score.toFixed(0)}</div>
+      `;
+      el.appendChild(row);
+    });
+  }catch(e){ /* keep last rendered list */ }
+}
+pollPriority();
+setInterval(pollPriority, 4000);
+
+/* ---------- mission report (/api/mission/report) ---------- */
+async function pollReport(){
+  try{
+    const r = await fetch('/api/mission/report'); const d = await r.json();
+    $('report-box').textContent = d.text;
+    $('report-time').textContent = 'generated ' + timeAgo(d.generated_at);
+  }catch(e){ $('report-time').textContent = 'gateway unreachable'; }
+}
+pollReport();
+setInterval(pollReport, 15000);
+
+/* ---------- detections timeline chart (canvas, no library) ---------- */
+const timelineCanvas = $('timeline-canvas');
+const timelineCtx = timelineCanvas.getContext('2d');
+const TIMELINE_WINDOW_MIN = 20;
+const TIMELINE_BUCKETS = 20; // one per minute
+
+function drawTimeline(alerts, hazards){
+  const dpr = window.devicePixelRatio||1;
+  const cssW = timelineCanvas.clientWidth, cssH = timelineCanvas.clientHeight;
+  if(cssW===0||cssH===0) return;
+  timelineCanvas.width = Math.round(cssW*dpr); timelineCanvas.height = Math.round(cssH*dpr);
+  const w = timelineCanvas.width, h = timelineCanvas.height;
+  timelineCtx.clearRect(0,0,w,h);
+
+  const now = Date.now()/1000;
+  const bucketSpan = (TIMELINE_WINDOW_MIN*60) / TIMELINE_BUCKETS;
+  const aCounts = new Array(TIMELINE_BUCKETS).fill(0);
+  const hCounts = new Array(TIMELINE_BUCKETS).fill(0);
+  const bucketOf = ts => Math.floor((now - ts) / bucketSpan);
+
+  alerts.forEach(a=>{ const b = bucketOf(a.created_at); if(b>=0 && b<TIMELINE_BUCKETS) aCounts[TIMELINE_BUCKETS-1-b]++; });
+  hazards.forEach(hz=>{ const b = bucketOf(hz.created_at); if(b>=0 && b<TIMELINE_BUCKETS) hCounts[TIMELINE_BUCKETS-1-b]++; });
+
+  const maxCount = Math.max(1, ...aCounts, ...hCounts);
+  const padBottom = 16*dpr, padTop = 6*dpr;
+  const plotH = h - padBottom - padTop;
+  const colW = w / TIMELINE_BUCKETS;
+
+  timelineCtx.strokeStyle = '#26262b'; timelineCtx.lineWidth = 1;
+  for(let i=0;i<=2;i++){ const y = padTop + plotH*i/2; timelineCtx.beginPath(); timelineCtx.moveTo(0,y); timelineCtx.lineTo(w,y); timelineCtx.stroke(); }
+
+  for(let i=0;i<TIMELINE_BUCKETS;i++){
+    const x = i*colW;
+    const aH = (aCounts[i]/maxCount) * plotH;
+    const hH = (hCounts[i]/maxCount) * plotH;
+    if(aCounts[i]>0){
+      timelineCtx.fillStyle = '#22d3ee';
+      timelineCtx.fillRect(x+colW*0.15, padTop+plotH-aH, colW*0.32, aH);
+    }
+    if(hCounts[i]>0){
+      timelineCtx.fillStyle = '#d03b3b';
+      timelineCtx.fillRect(x+colW*0.53, padTop+plotH-hH, colW*0.32, hH);
+    }
+  }
+  timelineCtx.fillStyle = '#87868e'; timelineCtx.font = `${10*dpr}px system-ui`;
+  timelineCtx.fillText(`${TIMELINE_WINDOW_MIN}m ago`, 2, h-3*dpr);
+  timelineCtx.textAlign = 'right';
+  timelineCtx.fillText('now', w-2, h-3*dpr);
+  timelineCtx.textAlign = 'left';
+}
+
+async function pollTimeline(){
+  try{
+    const [ar, hr] = await Promise.all([fetch('/api/alerts'), fetch('/api/hazards')]);
+    const alerts = await ar.json(), hazards = await hr.json();
+    drawTimeline(alerts, hazards);
+  }catch(e){ /* keep last drawn frame */ }
+}
+window.addEventListener('resize', pollTimeline);
+pollTimeline();
+setInterval(pollTimeline, 5000);
+
+pollMl(); pollMesh();
+setInterval(pollMl, 1500);
+setInterval(pollMesh, 2500);
+
+/* ---------- sidebar active state ---------- */
+document.querySelectorAll('.sb-item[href^="#"]').forEach(item=>{
+  item.addEventListener('click', ()=>{
+    document.querySelectorAll('.sb-item').forEach(i=>i.classList.remove('active'));
+    item.classList.add('active');
+  });
+});
+</script>
+</body>
+</html>
