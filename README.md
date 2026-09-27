@@ -217,7 +217,7 @@ For deeper technical context, explore the project documentation:
 
 ## Team
 
-RUBIQX — SIH'26 team project by [ASH-LABS-02](https://github.com/ASH-LABS-02).
+RUBIQX — SIH'26 team project
 
 ## License and usage note
 
