@@ -199,9 +199,4 @@ This repository includes third-party tooling and data, including ORB-SLAM3 and t
 
 ---
 
-If you want, I can now also prepare a more premium version with:
 
-- a hero banner image section
-- badges for model types / stack / hardware
-- architecture screenshot placeholders
-- a more polished “Problem → Solution → Impact” story for SIH judges and reviewers
