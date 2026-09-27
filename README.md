@@ -1,179 +1,81 @@
 # RUBIQX · ARGUS
 
-**ARGUS is an autonomous search-and-rescue drone concept for SIH'26 (Problem Statement 26177).** It detects survivors, including partly buried people, and hazards onboard, then alerts rescue teams directly over Wi-Fi, falling back to LoRa radio when there is no network.
+ARGUS is an autonomous search-and-rescue (SAR) research prototype developed for SIH'26 (Problem Statement 26177). It combines monocular visual SLAM, edge-optimised object detection models, and alert delivery (Wi‑Fi with LoRa fallback) to detect survivors and hazards and notify rescue teams. This repository contains prototypes, trained models, dataset artifacts, and documentation used for the project.
 
-This repository holds the working prototypes: two trained detection models, an occlusion-focused dataset, a GPS-denied monocular SLAM proof of concept, and Blender visualisations of the mission.
+Status
+- Research/prototype: SLAM and detection models demonstrated on laptop hardware; onboard integration and field testing are in development.
 
-> **Current status:** research/prototype repository. The SLAM pipeline maps a laptop-camera stream with ORB-SLAM3; it does not fly a drone. The detection models are trained on a laptop GPU, not yet deployed on the drone. The Blender scenes are **simulations**, not flight footage. Thermal sensing, flight and dense 3D reconstruction are not implemented.
+Highlights
+- Trained YOLOv11 nano models for hazard detection (fire, smoke, crack, person) and occlusion-aware person detection.
+- Monocular GPS‑denied visual mapping prototype using ORB‑SLAM3 (laptop camera → ORB‑SLAM3 client in Ubuntu/WSL2).
+- Blender mission visualisations and evaluation tools for occluded-person detection (WiderPerson layout).
 
-## Project status
+Stack
+- Language(s): Python (primary), Dart (mobile app), HTML (dashboard), C++ (ORB‑SLAM3 client), MATLAB (evaluation)
+- Frameworks / tools: Flask (camera server), ORB‑SLAM3 (visual mapping), Ultralytics YOLO (model training/export)
+- Notable artifacts: PyTorch `.pt` models (YOLOv11), ONNX export, ncnn export directories for Pi deployment
 
-| Capability | Status | Where |
-|---|---|---|
-| Hazard detection (fire, smoke, crack, person), YOLOv11 | ✅ Trained and validated | [`ml-models/`](ml-models/) |
-| Occluded-person detection, YOLOv11 on WiderPerson | ✅ Trained (metrics pending) | [`ml-models/`](ml-models/), [`occluded_dataset/`](occluded_dataset/) |
-| GPS-denied visual mapping, ORB-SLAM3 monocular | ✅ Demonstrated (laptop webcam) | [`SLAM/`](SLAM/) |
-| Mission visualisation (Blender) | ✅ Simulation only | [`simulation/blender/`](simulation/blender/) |
-| Onboard inference on Raspberry Pi 5 (ncnn) | 🔧 In development | [`docs/hardware_abstraction.md`](docs/hardware_abstraction.md) |
-| Wi-Fi alerts with LoRa fallback → Flutter rescue app | 🔧 In development | [`docs/alert_schema.md`](docs/alert_schema.md) |
-| Survivor location projection, priority score | 📋 Planned | [`docs/architecture.md`](docs/architecture.md) |
-| Thermal + acoustic sensing, autonomous flight, payload drop | 📋 Planned | [`docs/architecture.md`](docs/architecture.md) |
+Repository layout
+```text
+SLAM/                    Windows camera server + ORB‑SLAM3 client and patches
+occluded_dataset/        WiderPerson images, annotations, MATLAB evaluator
+ml-models/               Trained detection models and export helpers
+simulation/blender/      Blender mission visualisations (simulation)
+docs/                    Architecture, hardware abstraction, alert schema
+templates/               Flask templates and dashboard assets
+app.py                   Flask-based alert server and dashboard prototype
+run_inference.py         Example inference script (connects camera → model)
+lora_*.py                LoRa uplink/bridge scripts and utilities
+start_dashboard.sh       Launch helper for the dashboard
+```
 
-## Documentation
+How it fits together
+- The laptop camera server (SLAM/src/camera_server.py) streams MJPEG frames over HTTP. ORB‑SLAM3 (Ubuntu/WSL2) consumes the stream to build a sparse visual map and provide camera pose. Detection models run on captured frames (prototype on laptop GPU; planned: Raspberry Pi 5 with ncnn). When detections are confirmed they are packaged into an alert (Wi‑Fi preferred; LoRa fallback) for a Flutter rescue app.
 
-- [`docs/architecture.md`](docs/architecture.md): system diagram, mission state machine, survivor location, payload safety rule, and what the system is not
-- [`docs/hardware_abstraction.md`](docs/hardware_abstraction.md): each component from laptop prototype → simulation → prototype drone → field build
-- [`docs/alert_schema.md`](docs/alert_schema.md): the exact Wi-Fi and LoRa alert formats
-
-## What is here
-
-| Component | Purpose | Start here |
-|---|---|---|
-| [`SLAM/`](SLAM/) | Windows webcam → MJPEG stream → Ubuntu/WSL2 → ORB-SLAM3 monocular tracking and sparse map | [`SLAM/README.md`](SLAM/README.md) |
-| [`occluded_dataset/`](occluded_dataset/) | WiderPerson images, annotations, splits, and MATLAB evaluation tools for dense pedestrian detection under occlusion | [`occluded_dataset/README.md`](occluded_dataset/README.md) |
-| [`ml-models/`](ml-models/) | Two trained YOLOv11 models: hazard detection (`disaster-mlmodel.pt`) and occluded-person detection (`occluded-mlmodel.pt`) | [`ml-models/README.md`](ml-models/README.md) |
-| [`simulation/blender/`](simulation/blender/) | Blender visualisations of the mission (**simulated**) | [`simulation/blender/README.md`](simulation/blender/README.md) |
-| [`docs/`](docs/) | Architecture, hardware roadmap, alert format | [`docs/architecture.md`](docs/architecture.md) |
-
-## Fastest path: run the SLAM prototype
-
-The SLAM prototype requires **two environments**:
-
-- **Windows:** Python, Flask, and OpenCV for the camera server.
-- **Ubuntu/WSL2:** a separately installed and built [ORB-SLAM3](https://github.com/UZ-SLAMLab/ORB_SLAM3) checkout with OpenCV, Pangolin, Eigen3, DBoW2, g2o, Boost.Serialization, and OpenSSL. This repository does not vendor those dependencies.
-
-### 1. Start the Windows camera server
-
+Quickstart — SLAM prototype (short)
+1) On Windows: start the camera server
 ```powershell
-cd <path-to-clone>\SLAM
+cd <path-to-clone>/SLAM
 py -m venv .venv
 .\.venv\Scripts\Activate.ps1
-python -m pip install flask opencv-python
 python src\camera_server.py
 ```
+Server endpoints:
+- http://localhost:5000/ — health
+- http://<windows-host>:5000/video — MJPEG stream
 
-The server exposes:
-
-- `http://localhost:5000/` — health message
-- `http://<windows-host>:5000/video` — multipart MJPEG stream
-
-If the webcam cannot be opened, close Camera/Teams/Zoom or change `CAMERA_INDEX` in [`SLAM/src/camera_server.py`](SLAM/src/camera_server.py). The server requests 640×480 at 30 FPS and JPEG quality 85.
-
-### 2. Apply the ORB-SLAM3 prototype patch
-
-From the root of your ORB-SLAM3 checkout:
-
+2) On Ubuntu/WSL2: run ORB‑SLAM3 (after applying patch)
 ```bash
+# In your ORB_SLAM3 checkout
 git apply /path/to/RUBIQX/SLAM/patches/orb-slam3-changes.patch
-# Configure and build ORB-SLAM3 using its own build instructions.
-```
-
-The patch adds the `live_mono` executable and replaces the default current-camera viewer marker with a wireframe quadcopter marker. It is a source patch, not a standalone build system.
-
-### 3. Start monocular tracking in Ubuntu/WSL2
-
-```bash
-cd /path/to/ORB_SLAM3
+# build ORB-SLAM3 per its instructions
 WINDOWS_HOST=$(ip route | awk '/default/ {print $3; exit}')
-./live_mono \
-  Vocabulary/ORBvoc.txt \
-  /path/to/RUBIQX/SLAM/config/LaptopCamera.yaml \
-  "http://$WINDOWS_HOST:5000/video"
+./live_mono Vocabulary/ORBvoc.txt /path/to/RUBIQX/SLAM/config/LaptopCamera.yaml "http://$WINDOWS_HOST:5000/video"
 ```
 
-The executable expects exactly three arguments:
-
-```text
-live_mono <vocabulary_file> <settings_file> <camera_url>
+Testing models (local)
+```bash
+pip install ultralytics
+yolo predict model=ml-models/disaster-mlmodel.pt source=path/to/image.jpg
+```
+Export for Raspberry Pi / ncnn
+```bash
+yolo export model=ml-models/disaster-mlmodel.pt format=ncnn
 ```
 
-Press **Q**, **Esc**, or **Ctrl+C** to stop cleanly. When at least 10 frames have valid tracking, the prototype writes `LiveKeyFrameTrajectory.txt` in the current working directory.
+Datasets and attribution
+- occluded_dataset/ contains WiderPerson-derived annotations and MATLAB evaluation code. All dataset ownership and license terms belong to the original authors (see docs and occluded_dataset/README.md). Cite: Zhang et al., "WiderPerson: A Diverse Dataset for Dense Pedestrian Detection in the Wild", IEEE TMM (2020).
 
-### Throughput and tracking tuning
+Limitations & next steps
+- No flight tests or autonomous flight code included. The SLAM prototype is monocular and scale-ambiguous.
+- No end-to-end onboard integration linking SLAM → detection → alert on the Pi; performance on Pi (frame rate, latency) is unmeasured.
+- Planned: survivor projection (bearing + range), payload-drop safety workflow, thermal/acoustic sensing, and field trials.
 
-The checked-in camera profile is intentionally conservative:
+How to contribute
+- File issues for bugs or enhancements. Use PRs with a clear description and tests where possible. Sensitive model weights or dataset licensing issues: check docs/ and respect original dataset licenses.
 
-- 640×480 input, 15 FPS SLAM configuration, 1,200 ORB features
-- camera stream at 30 FPS with a one-frame capture buffer requested by the C++ client
-- approximate pinhole calibration with zero distortion coefficients
+Contact / Team
+RUBIQX — SIH'26 team by ASH-LABS-02. See project files and issues for ongoing work.
 
-For higher throughput, tune one variable at a time in [`SLAM/config/LaptopCamera.yaml`](SLAM/config/LaptopCamera.yaml): reduce `ORBextractor.nFeatures`, lower the camera resolution, or reduce the stream FPS. For better tracking quality, calibrate the camera instead of relying on the provisional values. Monocular scale remains unknown.
-
-## Dataset evaluation
-
-`occluded_dataset/` is the WiderPerson benchmark layout:
-
-```text
-occluded_dataset/
-  Images/          13,382 images
-  Annotations/     training/validation annotations
-  Evaluation/      MATLAB evaluation code and validation metadata
-  train.txt        training split
-  val.txt          validation split
-  test.txt         testing split
-```
-
-Annotations use `[class_label, x1, y1, x2, y2]` after the per-image count. Labels are:
-
-| ID | Class |
-|---:|---|
-| 1 | pedestrians |
-| 2 | riders |
-| 3 | partially-visible persons |
-| 4 | ignore regions |
-| 5 | crowd |
-
-Prediction files use one file per image with `[x1, y1, x2, y2, score]` after the detection count. The MATLAB evaluator reports **Recall**, **AP**, and **MR** for **Easy**, **Medium**, and **Hard** validation subsets at IoU 0.5.
-
-To evaluate predictions:
-
-1. Put a prediction directory under `occluded_dataset/Evaluation/`.
-2. Ensure each prediction filename matches the image stem and follows the format above.
-3. Edit `legend_name` and `pred_dir` in [`occluded_dataset/Evaluation/wider_eval.m`](occluded_dataset/Evaluation/wider_eval.m).
-4. Run from the evaluation directory in MATLAB:
-
-```matlab
-cd occluded_dataset/Evaluation
-wider_eval
-```
-
-The evaluator writes `<legend_name>_eval_result.txt` beside the prediction directory. See [`occluded_dataset/README.md`](occluded_dataset/README.md) for the original benchmark details and attribution.
-
-## Repository layout
-
-```text
-.
-├── SLAM/
-│   ├── src/              Windows camera server and C++ ORB-SLAM3 client
-│   ├── config/           provisional ORB-SLAM3 laptop-camera calibration
-│   └── patches/          ORB-SLAM3 build/viewer modifications
-├── occluded_dataset/
-│   ├── Images/           WiderPerson image set
-│   ├── Annotations/      ground-truth annotations
-│   └── Evaluation/       MATLAB metrics and validation metadata
-├── ml-models/            hazard and occluded-person YOLOv11 models
-├── simulation/blender/   Blender mission visualisations (simulated)
-├── docs/                 architecture, hardware abstraction, alert schema
-└── README.md
-```
-
-## Limitations and next steps
-
-- No top-level inference script yet connects the detection models to the camera or SLAM output.
-- Model frame rate on the Raspberry Pi 5, alert latency and LoRa delivery rate are not yet measured.
-- The SLAM prototype uses a laptop camera, approximate calibration, monocular scale, and a sparse map.
-- Autonomous flight, obstacle avoidance, survivor confirmation, thermal sensing, and sensor fusion are outside the current implementation (see [Project status](#project-status)).
-- ORB-SLAM3 and Pangolin are external dependencies; follow their licenses and build instructions.
-- Dataset files retain the original WiderPerson ownership and terms. Cite the original work when using them.
-
-## Citation and attribution
-
-This repository includes the WiderPerson dataset. Cite:
-
-> Zhang, S., Xie, Y., Wan, J., Xia, H., Li, S. Z., & Guo, G. (2020). *WiderPerson: A Diverse Dataset for Dense Pedestrian Detection in the Wild*. IEEE Transactions on Multimedia, 22(2), 380–393. DOI: [10.1109/TMM.2019.2929005](https://doi.org/10.1109/TMM.2019.2929005)
-
-See the [official WiderPerson website](http://www.cbsr.ia.ac.cn/users/sfzhang/WiderPerson/) and the component READMEs for source-specific terms.
-
-## Team
-
-RUBIQX — SIH'26 team project by [ASH-LABS-02](https://github.com/ASH-LABS-02).
+License & citation
+- This repository bundles third‑party artifacts (WiderPerson, ORB‑SLAM3). Follow their license terms. Provide academic citation where required.
