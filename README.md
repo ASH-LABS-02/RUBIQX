@@ -1,228 +1,111 @@
-# RUBIQX · ARGUS
+# RUBIQX | ARGUS
+## Rescue intelligence when connectivity is unreliable
 
-<p align="center">
-  <img src="https://img.shields.io/badge/SIH'26-Problem%20Statement%2026177-0A66C2?style=for-the-badge" alt="SIH 2026" />
-  <img src="https://img.shields.io/badge/Python-51%25-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python" />
-  <img src="https://img.shields.io/badge/Dart-26.3%25-0175C2?style=for-the-badge&logo=dart&logoColor=white" alt="Dart" />
-  <img src="https://img.shields.io/badge/Status-Prototype%20%26%20Research-FFB000?style=for-the-badge" alt="Prototype and Research" />
-</p>
+**A human-in-the-loop search-and-rescue research prototype:** detect visible people and hazards, deliver compact alerts over a relay radio link, and give operators a shared view of the evidence.
 
-<p align="center">
-  <strong>Autonomous Search-and-Rescue Intelligence Platform</strong>
-</p>
+Built for SIH problem statement 26177. The contribution is system integration across perception, constrained communications and operator workflows—not a new detector or SLAM algorithm.
 
-ARGUS is a research-driven autonomous search-and-rescue (SAR) intelligence platform designed for disaster response scenarios where conventional infrastructure is compromised. Developed for SIH'26, the system integrates AI-powered hazard detection, occluded-person recognition, visual odometry and SLAM, telemetry interfaces, and responsive alert workflows to support field operations in GPS-denied and low-visibility environments.
+> **Prototype boundary:** no verified autonomous flight, thermal sensing, metric survivor localization or field-rescue effectiveness is claimed. RGB cannot see through rubble. Model confidence is not the probability that a survivor is present.
 
-The platform is intended to help rescue teams detect survivors faster, identify hazards earlier, understand mission context in real time, and coordinate response efforts using a unified dashboard and mobile alert pipeline.
+## What is implemented—and what is not
 
-## Mission
-
-Search and rescue operations are time-critical, risky, and often executed under conditions where GPS, network connectivity, and situational awareness are unreliable. ARGUS addresses this challenge by combining perception, mapping, and decision support into a single operational stack for field teams.
-
-## Why this project matters
-
-- GPS coverage may be unavailable or degraded in disaster zones
-- Smoke, debris, and occlusion reduce visibility for human operators
-- First-response window is critical for survivor survival
-- Communication between rescuers and command centers can be unreliable
-- Locational awareness under cluttered environments remains difficult
-
-ARGUS provides a practical, prototype-grade foundation for closing those gaps through:
-
-- AI-based hazard and survivor detection
-- visual SLAM for GPS-denied localization
-- edge-ready model export workflows
-- mobile and web operator interfaces
-- Wi‑Fi and LoRa assisted alert propagation
-
-## Core capabilities
-
-| Capability | Status | Notes |
+| Component | Repository evidence | Current boundary |
 |---|---|---|
-| Hazard detection (fire, smoke, crack, person) | ✅ Demonstrated | YOLOv11-based detection pipeline |
-| Occluded-person detection | ✅ Demonstrated | WiderPerson-inspired training setup for partially hidden pedestrians |
-| GPS-denied visual mapping | ✅ Prototype | Monocular ORB-SLAM3 prototype using laptop camera input |
-| Onboard Raspberry Pi inference | 🔧 In development | NCNN export and embedded deployment planned |
-| Alerting via Wi‑Fi + LoRa fallback | 🔧 In development | Integration with rescue app and mission workflows underway |
-| Survivor projection and mission scoring | 📋 Planned | Requires additional sensing and logic for field deployment |
-| Autonomous flight and payload logic | 📋 Planned | Future system expansion for full unmanned SAR missions |
+| Person detection | YOLO inference, checkpoint/export assets, configurable confidence | Disaster-domain accuracy and occlusion improvement need controlled evaluation |
+| Hazard detection | Separate fire/smoke inference worker | Upstream model metrics are not ARGUS field results |
+| Alert delivery | Binary packets, SPI driver, ESP32 relay firmware, deduplication, hop/TTL handling | Radio range, delivery rate and end-to-end latency need recorded bench/field tests |
+| Operator interface | Flask dashboard, alert history, Flutter app source | Human review required; no authentication or production hardening |
+| Visual mapping | Separate ORB-SLAM3 camera-stream integration | Camera-only prototype; unknown metric scale; not connected to flight control |
+| Dashboard odometry | Experimental frame-to-frame ORB pose recovery | Arbitrary display units, no loop closure, disabled by default |
+| Mission visualization | Blender assets and illustrative map | Not evidence of autonomous navigation or measured search coverage |
+| Autonomous flight / payload release | Roadmap only | Not implemented or flight-validated |
 
-## System architecture
+Evidence is classified as **implemented**, **automated-test verified**, or **hardware/field measured**. These are not interchangeable. See [validation](docs/VALIDATION.md).
 
-```mermaid
-flowchart LR
-    CAM[RGB Camera] --> DET1[Hazard Detection Model]
-    CAM --> DET2[Occluded Person Model]
-    CAM --> SLAM[ORB-SLAM3 Visual Mapping]
-    DET1 --> FUSE[Threat + Survivor Fusion]
-    DET2 --> FUSE
-    FUSE --> ALERT{Send Alert}
-    ALERT -- Wi‑Fi --> APP[Rescue App]
-    ALERT -- LoRa fallback --> GCS[Ground Station]
-    GCS --> APP
-```
+## Why this approach is useful
 
-## Repository overview
+- **Small alerts on a constrained link:** person count and confidence can travel without streaming video over LoRa.
+- **Explicit uncertainty:** missing coordinates stay unknown; simulated positions remain separate.
+- **Operator continuity:** local dashboard, alert persistence and relay metadata support review when infrastructure is limited.
+- **Testable boundaries:** camera, inference, radio and localization can be evaluated separately before integration.
 
-```text
-RUBIQX/
-├── app.py                     # Flask dashboard + mission intelligence server
-├── run_inference.py           # Inference execution entry points
-├── start_dashboard.sh         # Dashboard startup helper
-├── best.pt                    # Reference YOLO checkpoint
-├── best.onnx                  # ONNX export
-├── hazard_fire_smoke.pt       # Fire/smoke hazard detection model
-├── best_ncnn_model_*/        # NCNN model exports for edge deployment
-├── SLAM/                      # Camera server, config, and ORB-SLAM3 patch set
-├── ml-models/                 # Trained model assets and documentation
-├── occluded_dataset/          # WiderPerson-inspired dataset and evaluation utilities
-├── simulation/                # Blender-based mission visualization assets
-├── mobile_app/                # Flutter-based rescue operator interface
-├── docs/                      # Architecture, hardware, and alert schema documentation
-├── firmware/                  # Firmware-related components
-├── sar/                       # SAR / radio / packet logic
-├── templates/                 # Flask UI templates
-├── argus_dist/                # Frontend build/static assets
-├── README.md                  # Project overview
-├── LICENSE                    # Repository license (if present)
-├── .gitignore
-├── test_inference.py
-├── calibrate_camera.py
-├── export_model.py
-├── rescue_location.py
-├── lora_bridge.py
-├── lora_uplink.py
-├── lora_uplink_direct.py
-├── checkradio.py
-├── watchdog.py
-├── vo_smoke_test.py
-├── _uart_check.py
-└── sample_drone.mp4
-```
+Benefits such as faster rescue, longer range or fewer missed survivors are hypotheses until measured—not headline percentages.
 
-## Technology stack
+## Run without hardware or model weights
 
-- Languages: Python, Dart, C++, HTML, MATLAB, Shell
-- Core runtime: Flask, Ultralytics YOLO, ORB-SLAM3, Raspberry Pi 5 deployment path
-- AI models: YOLOv11-based hazard and occluded-person detection
-- Communications: Wi‑Fi alerting with LoRa fallback
-- Mobile/UX: Flutter rescue app and dashboard interfaces
-- Vision stack: RGB-based perception, camera calibration, and GPS-denied mapping
-
-## Quick start
-
-### 1) Launch the dashboard locally
+Python 3.11+ recommended. From the repository root:
 
 ```bash
+python -m venv .venv
+# Linux/macOS:
+source .venv/bin/activate
+# Windows PowerShell instead:
+# .\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements-review.txt
+python -m pytest -q
+```
+
+Start an explicitly offline review session:
+
+```bash
+# Linux/macOS
+ARGUS_OFFLINE=1 python app.py
+```
+
+```powershell
+# Windows PowerShell
+$env:ARGUS_OFFLINE="1"
 python app.py
 ```
 
-Open any of the following in your browser:
+Open [dashboard](http://127.0.0.1:5000/), [vision](http://127.0.0.1:5000/ml), or [ground station](http://127.0.0.1:5000/gcs).
 
-- http://localhost:5000/
-- http://localhost:5000/ml
-- http://localhost:5000/gcs
+Review mode does not initialize radios, load model checkpoints, open a camera, or start Wi-Fi geolocation. The video is a labelled placeholder, not recorded evidence. A few browser assets may still depend on internet access.
 
-This serves the mission dashboard, AI surveillance feed, telemetry interfaces, and alert management views.
+## Run with a camera / inference
 
-### 2) Run the SLAM prototype
+1. Install `requirements.txt` in the environment.
+2. Remove `ARGUS_OFFLINE` or set it to `0`.
+3. Ensure the selected checkpoint/export exists locally. Only load checkpoints from a trusted source.
+4. Run `python app.py`. Model-loading failures remain visible; no missing model is silently downloaded.
+5. Pi camera, NCNN and SPI access require platform-specific dependencies and device permissions; see [hardware setup](docs/hardware_abstraction.md).
 
-This prototype is split across two environments:
+The default listener is **127.0.0.1**. For a trusted bench LAN, explicitly set `ARGUS_HOST=0.0.0.0`. The prototype has unauthenticated control/ingestion endpoints: do not expose it to the internet. `ARGUS_PORT` overrides port 5000.
 
-#### Windows: camera stream server
-
-```powershell
-cd <path-to-clone>\SLAM
-py -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python src\camera_server.py
-```
-
-The stream is exposed at:
-
-- http://localhost:5000/
-- http://<windows-host>:5000/video
-
-#### Ubuntu / WSL2: ORB-SLAM3 tracking
-
+For a saved image/video:
 ```bash
-# In your ORB-SLAM3 checkout
-# Apply the project patch first
-git apply /path/to/RUBIQX/SLAM/patches/orb-slam3-changes.patch
-
-WINDOWS_HOST=$(ip route | awk '/default/ {print $3; exit}')
-./live_mono \
-  Vocabulary/ORBvoc.txt \
-  /path/to/RUBIQX/SLAM/config/LaptopCamera.yaml \
-  "http://$WINDOWS_HOST:5000/video"
+python run_inference.py --model best.pt --source path/to/video.mp4 --save
 ```
 
-### 3) Run model inference locally
+[Model inventory](ml-models/README.md) distinguishes active models from other artifacts. [SLAM setup](SLAM/README.md) is a separate process, not part of the dashboard startup.
 
-```bash
-pip install ultralytics
-python run_inference.py --help
-```
+## Judge-facing demo: evidence, not promises
 
-For direct model execution:
+1. Show the capability table and explain which inputs are real.
+2. On a real camera, show a visible person detection and an empty-scene negative example.
+3. With radios connected, trace one packet ID from origin through relay to receipt; show a disconnected-link case too.
+4. Show the operator alert, acknowledge it, restart and confirm persistence.
+5. Present the separate SLAM experiment with its unknown-scale limitation.
+6. Show the automated test output and measured results, if available. Do not substitute Blender footage for algorithm evidence.
 
-```bash
-yolo predict model=ml-models/disaster-mlmodel.pt source=path/to/image.jpg
-```
+See [demo and evidence checklist](docs/VALIDATION.md) for the measurements needed before claiming improvement.
 
-For Raspberry Pi edge export:
+## Repository map
 
-```bash
-yolo export model=ml-models/disaster-mlmodel.pt format=ncnn
-```
+| Path | Purpose |
+|---|---|
+| `app.py`, `templates/` | Dashboard, inference workers, alert API |
+| `sar/packet.py`, `sar/mesh.py`, `sar/radio/` | Radio protocol and transport |
+| `sar/visual_odometry.py` | Isolated experimental relative VO |
+| `firmware/esp32_relay/` | ESP32 radio firmware |
+| `mobile_app/` | Flutter operator client |
+| `SLAM/` | ORB-SLAM3 camera adapter and viewer patch |
+| `tests/` | Hardware-free regression suite |
+| `tools/evaluate_model.py` | Evaluation report generator with model hash |
+| `simulation/` | Illustrative Blender assets |
 
-## Project status and roadmap
+## Attribution and ownership
 
-### Current state
+Ultralytics supplies the detection framework; ORB-SLAM3 supplies the SLAM engine. Dataset and pretrained-model rights remain with their respective owners. The fire/smoke model source is recorded in [model documentation](ml-models/README.md). A repository-wide license must be selected by the owners; this revision does not grant rights to third-party datasets or weights.
 
-This repository represents a credible prototype and research foundation for autonomous SAR intelligence. It combines working components across perception, visual mapping, dashboard interfaces, and communications-related alert logic. The project is not yet a complete field-deployable autonomous rescue platform, but it demonstrates the core technical feasibility of an integrated disaster-response system.
-
-### Planned next steps
-
-- production-grade onboard Raspberry Pi 5 deployment
-- improved survivor localization using heading and range estimation
-- latency benchmarking and reliability testing for alert propagation
-- autonomous flight safety and payload release logic
-- thermal and acoustic sensing integration
-- end-to-end field validation with hardware-in-the-loop testing
-
-## Dataset and attribution
-
-The project includes a WiderPerson-inspired occlusion dataset for dense pedestrian detection under partial obstruction.
-
-Please see:
-
-- `occluded_dataset/README.md`
-- `docs/architecture.md`
-
-Citation:
-
-> Zhang, S., Xie, Y., Wan, J., Xia, H., Li, S. Z., & Guo, G. (2020). WiderPerson: A Diverse Dataset for Dense Pedestrian Detection in the Wild. IEEE Transactions on Multimedia.
-
-## Documentation
-
-For deeper technical context, explore the project documentation:
-
-- [`docs/architecture.md`](docs/architecture.md) — system architecture and mission concept
-- [`docs/hardware_abstraction.md`](docs/hardware_abstraction.md) — hardware path from prototype to deployment
-- [`docs/alert_schema.md`](docs/alert_schema.md) — Wi‑Fi and LoRa alert modeling
-- [`SLAM/README.md`](SLAM/README.md) — ORB-SLAM3 prototype notes
-- [`ml-models/README.md`](ml-models/README.md) — model definitions and deployment guidance
-- [`occluded_dataset/README.md`](occluded_dataset/README.md) — dataset expectations and evaluation context
-
-## Team
-
-RUBIQX — SIH'26 team project
-
-## License and usage note
-
-This repository includes third-party components and datasets, including ORB-SLAM3 and the WiderPerson benchmark. Please respect the applicable licensing and attribution requirements for those upstream projects when using, adapting, or distributing this work.
-
----
-
-This project is positioned as a research prototype for autonomous disaster response intelligence and is intended to support further development in edge AI, mapping, field operations, and mission coordination.
+**Team:** RUBIQX. **Platform:** ARGUS.
