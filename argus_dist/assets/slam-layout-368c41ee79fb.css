@@ -1,0 +1,15 @@
+/* Preserve the current map, rescue distance and GPS trajectory; add live SLAM. */
+@media(min-width:1200px){.dashboard-row.middle-row{grid-template-columns:minmax(0,1.25fr) minmax(0,.9fr) minmax(0,1fr) minmax(0,1fr)}}
+iframe.slam-embed-panel{display:block;width:100%;height:100%;min-height:280px;border:0;border-radius:6px;background:#fff}
+.middle-row .odometry-body>svg{width:55%;flex:1;min-width:0}
+.middle-row .odometry-body>svg+.odometry-stats{flex:0 0 42%;min-width:0}
+.middle-row .odometry-body>svg+.odometry-stats>div{padding:7px}
+.middle-row .odometry-body>svg+.odometry-stats strong{white-space:normal;overflow-wrap:anywhere;font-size:13px}
+@media(min-width:1200px) and (max-width:1650px){.middle-row .odometry-panel .panel-meta{display:none}}
+@keyframes argus-panel-enter{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
+@media(prefers-reduced-motion:no-preference){
+html:not([data-motion="off"]) .dashboard-row>.panel{animation:argus-panel-enter .28s ease-out both}
+html:not([data-motion="off"]) .middle-row>.panel{animation-delay:.04s}
+html:not([data-motion="off"]) .bottom-row>.panel{animation-delay:.08s}
+html:not([data-motion="off"]) button,html:not([data-motion="off"]) .nav-item{transition:background-color .15s ease,color .15s ease,box-shadow .15s ease}
+}

@@ -120,9 +120,11 @@ DEFAULT_MODEL = "best_ncnn_model_416"
 CAMERA_STREAM_URL = os.environ.get("CAMERA_STREAM_URL", "").strip()
 """When set (e.g. to a phone's IP Webcam MJPEG URL), DetectionWorker reads
 frames from this network stream instead of the Pi's own attached camera
-module. Everything downstream -- HazardWorker, VisualOdometryWorker, the
-dashboard, alerts -- reads DetectionWorker.latest_frame_bgr the same way
-regardless of which source filled it, so nothing else needs to change."""
+module. Everything downstream that reads camera frames -- HazardWorker,
+the dashboard, alerts -- reads DetectionWorker.latest_frame_bgr the same
+way regardless of which source filled it, so nothing else needs to
+change. (GpsTrackWorker has no camera dependency at all -- see its own
+module comment.)"""
 
 USB_CAMERA_DEVICE = os.environ.get("USB_CAMERA_DEVICE", "/dev/video0")
 """A UVC webcam plugged directly into the Pi's USB port (e.g. the Zebronics
@@ -193,8 +195,8 @@ class Alert:
     person_count: int
     source: str                      # "camera-direct" | "lora-mesh"
     image_url: str | None = None
-    lat: float | None = None         # None until GPS/Pixhawk is wired in
-    lon: float | None = None
+    lat: float | None = None         # real fix only -- see LocationWorker; None
+    lon: float | None = None         # when no WiFi-geolocation fix exists yet
     route: str | None = None         # "DIRECT" | "RELAY", mesh alerts only
     hops: int | None = None
     rssi_dbm: float | None = None
@@ -342,6 +344,8 @@ class HazardEvent:
     hazard_type: str          # "fire" | "smoke" -- whatever HAZARD_MODEL_PATH's model.names holds
     confidence: float
     image_url: str | None = None
+    lat: float | None = None         # real fix only -- see LocationWorker; None
+    lon: float | None = None         # when no WiFi-geolocation fix exists yet
     sim_lat: float | None = None
     sim_lon: float | None = None
     sim_x_m: float | None = None
@@ -635,7 +639,7 @@ def generate_mission_report() -> str:
 
     lines = [
         f"MISSION REPORT -- {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
-        f"Search coverage: {coverage:.0f}% of the designated area (simulated position).",
+        f"Search coverage: {coverage:.0f}% of the designated area.",
         f"Survivors detected: {len(alerts)} total, {verified} thermally verified.",
     ]
     if critical:
@@ -668,14 +672,21 @@ class DetectionWorker:
         # model -- see MODEL_REGISTRY and load_model().
         self.model_name = DEFAULT_MODEL
         self.imgsz = MODEL_REGISTRY[DEFAULT_MODEL]["imgsz"]
-        # Moved down from 0.35: the checkpoint's own validation run scores
-        # 82.3% precision but only 65.2% recall -- there is real headroom to
-        # trade a bit of precision for recall before false positives become
-        # a problem. This is a reasoned starting point, not a value derived
-        # from a measured PR curve on this exact deployment; re-tune it once
-        # real test footage in adequate light is available (see the exposure
-        # note in init_camera -- at ~8 lux nothing detects at any threshold).
-        self.conf = 0.25
+        # Restored to 0.35 (was lowered to 0.25 to trade precision for
+        # recall -- the checkpoint's own validation run scores 82.3%
+        # precision but only 65.2% recall at 0.35). At 0.25, sustained
+        # indoor bench testing produced a continuous flood of low-
+        # confidence false positives (600+ alerts/hour) that buried real
+        # signal on the dashboard map and alert feed, and the extra
+        # inference/notification load was even interfering with this
+        # process's own WiFi-geolocation lookups. 0.35 is the model's own
+        # validated starting point, not an arbitrary new number -- re-tune
+        # either direction once real test footage in adequate light is
+        # available (see the exposure note in init_camera -- at ~8 lux
+        # nothing detects at any threshold), and lower it again if this
+        # is ever run as a real recall-prioritized deployment rather than
+        # a demo.
+        self.conf = 0.35
         self.model = None
 
         # Camera & State
@@ -816,12 +827,8 @@ class DetectionWorker:
         it back to 1280x720 if a future change frees up more CPU headroom
         and it's worth re-checking inference fps against. This resolution
         only reaches the human viewer: the detector still resizes every
-        frame down to imgsz (416) regardless of source size, and
-        VisualOdometryWorker resizes back
-        down to its own fixed vo_frame_size before feature detection (see
-        that class -- its intrinsics are calibrated for a specific size and
-        would silently desync if fed this resolution directly), so neither
-        one pays for or benefits from the extra detail here. Same
+        frame down to imgsz (416) regardless of source size, so it neither
+        pays for nor benefits from the extra detail here. Same
         CAP_PROP_BUFFERSIZE=1 low-latency reasoning as _init_network_camera.
         Reuses self.net_cap -- the capture loop only branches on
         `self.camera_active and self.net_cap`, not on camera_source, so no
@@ -1305,13 +1312,21 @@ class DetectionWorker:
 
         sim_pos = simulated_mission_position()
         hazard_nearby = nearest_recent_hazard(sim_pos["x_m"], sim_pos["y_m"])
+        # The camera doing the detecting is only ever a few meters from
+        # whatever it's looking at -- the same reasoning api_team_nearest()
+        # already relies on to use this same reading as the "survivor"
+        # stand-in. Only None when LocationWorker genuinely has no fix yet
+        # (see LOCATION_STALE_AFTER_S) -- never a fabricated 0.0, 0.0.
+        loc = location_worker.status()
+        detection_lat = loc["lat"] if loc["available"] else None
+        detection_lon = loc["lon"] if loc["available"] else None
         alert_store.create(
             confidence=round(confidence, 1),
             person_count=person_count,
             source="camera-direct",
             image_url=image_url,
-            lat=None,
-            lon=None,
+            lat=detection_lat,
+            lon=detection_lon,
             thermal_verified=thermal_verified,
             sim_lat=sim_pos["lat"],
             sim_lon=sim_pos["lon"],
@@ -1324,11 +1339,11 @@ class DetectionWorker:
         # Also send it over LoRa, independent of the local alert above --
         # this is what makes the detection reach a rescue team that has no
         # WiFi/hotspot link to this Pi at all, only LoRa range. Same
-        # position-unknown honesty applies: None, not a fabricated 0,0 (see
-        # sar.packet.HumanDetected's no-fix sentinel).
+        # position -- or the same honest None, not a fabricated 0,0 (see
+        # sar.packet.HumanDetected's no-fix sentinel) -- travels both paths.
         if drone_link is not None:
             drone_link.send_detection(
-                lat=None, lon=None, confidence=confidence, person_count=person_count,
+                lat=detection_lat, lon=detection_lon, confidence=confidence, person_count=person_count,
             )
 
     def capture_snapshot(self):
@@ -1399,11 +1414,15 @@ class DetectionWorker:
 
 HAZARD_MODEL_PATH = "hazard_fire_smoke.pt"
 HAZARD_CHECK_INTERVAL_S = 2.0
-HAZARD_CONF = 0.35
-"""Higher than the person model's 0.25: a missed fire is bad, but so is a
-dashboard that cries "FIRE" at an orange sunset through a window often
-enough that the rescue team stops trusting this feed. Not measured against
-real footage here -- re-tune once there is some."""
+HAZARD_CONF = 0.5
+"""Raised from 0.35: sustained indoor bench testing at 0.35 produced a
+near-continuous stream of smoke/fire events (ordinary indoor lighting and
+shadows apparently read as "smoke" often enough to flood the dashboard
+map and alert feed alongside the person-model flood -- see
+DetectionWorker.conf's comment). Still meaningfully below a strict cutoff:
+a missed fire is bad, but so is a dashboard that cries "FIRE" often enough
+that the rescue team stops trusting this feed. Not measured against real
+fire/smoke footage here -- re-tune once there is some."""
 HAZARD_IMGSZ = 640  # matches this model's own training imgsz (args.yaml) -- see MODEL_REGISTRY's
                      # comment block above on why imgsz must match what a model was actually trained/exported at
 
@@ -1489,10 +1508,17 @@ class HazardWorker:
             image_url = None
 
         sim_pos = simulated_mission_position()
+        # Same reasoning as DetectionWorker's alert_store.create() call --
+        # the camera raising this hazard is only ever a few meters from it.
+        loc = location_worker.status()
+        hazard_lat = loc["lat"] if loc["available"] else None
+        hazard_lon = loc["lon"] if loc["available"] else None
         hazard_store.create(
             hazard_type=htype,
             confidence=round(hazard["confidence"], 1),
             image_url=image_url,
+            lat=hazard_lat,
+            lon=hazard_lon,
             sim_lat=sim_pos["lat"], sim_lon=sim_pos["lon"],
             sim_x_m=sim_pos["x_m"], sim_y_m=sim_pos["y_m"],
         )
@@ -1502,265 +1528,105 @@ class HazardWorker:
 
 
 # --------------------------------------------------------------------------
-# Visual odometry -- a REAL camera-derived trajectory, not the simulated
-# lawnmower position above. Important to be precise about what this is:
-# frame-to-frame monocular odometry (ORB features + essential-matrix pose
-# recovery), not full SLAM. Concretely that means:
-#   - no loop closure: small per-frame errors accumulate and the estimated
-#     path silently drifts from the truth over a long mission -- there is
-#     no mechanism here to notice or correct that, unlike real SLAM.
-#   - no metric scale: a single camera cannot recover true distance from
-#     motion alone (the classic monocular scale-ambiguity problem). Each
-#     step's translation is a *direction*, scaled by VO_STEP_SCALE_M below,
-#     which is a guessed constant, not a measurement. Treat the trajectory
-#     as relative shape, not a metric map, unless/until a real scale
-#     reference (IMU, altimeter, stereo baseline) is added.
-#   - needs texture: over water, smoke, uniform ground or in motion blur
-#     there aren't enough matched features to recover a pose, and tracking
-#     reports itself lost rather than silently guessing -- see
-#     `tracking_ok`.
-#   - runs on whatever intrinsics camera_calibration.json holds, or a rough
-#     pinhole default if that file doesn't exist yet (`calibrated: false`
-#     in every response until calibrate_camera.py has actually been run
-#     against this specific camera).
-#   - only runs at all while DetectionWorker.camera_active is True. When
-#     there's no real camera, DetectionWorker.latest_frame_bgr is a static
-#     placeholder frame (see generate_dummy_frame) -- identical frame
-#     matched against itself is a degenerate case for epipolar geometry,
-#     and testing against it produced exactly what you'd expect: a fake
-#     "tracking_ok" with a slow noise-driven drift and no real motion
-#     behind it at all. `camera_active` is surfaced in /api/vo/status so
-#     the dashboard shows "NO CAMERA" instead of a confident-looking but
-#     meaningless TRACKING badge.
+# GPS trajectory -- a REAL position track, sampled directly from
+# LocationWorker's own WiFi-geolocation fixes over time, not the simulated
+# lawnmower position above.
+#
+# This used to be frame-to-frame monocular visual odometry (ORB features +
+# essential-matrix pose recovery). That was replaced, not just relabelled:
+# monocular VO can only ever recover a *direction* per step, not a real
+# distance (the classic scale-ambiguity problem), so every step was scaled
+# by a guessed constant, never a measurement -- and on this rig's mostly-
+# static demo camera, low-texture/low-light frames routinely left too few
+# matched features to recover a pose at all, reporting itself lost far
+# more often than it tracked. Sampling LocationWorker's real fixes instead
+# has none of that: every point is an actual position, not a guess.
+#
+# The honest tradeoffs of the new approach:
+#   - update rate is LocationWorker's own cadence (LOCATION_UPDATE_INTERVAL_S,
+#     currently 60s), not a smooth per-frame trail -- expect a coarse,
+#     staircase-like path, not a continuous one.
+#   - each point carries WiFi-geolocation's own ~10-20m error, so short
+#     hops between points can be dominated by fix noise rather than real
+#     movement -- same caveat api_team_nearest() already gives its own
+#     distance figure.
+#   - still no loop closure or map: this is a track, not SLAM. See
+#     api_team_nearest()'s docstring for the closest thing this project
+#     has to a "is this SLAM" answer -- it isn't, on either path.
 # --------------------------------------------------------------------------
 
-VO_INTERVAL_S = 0.15          # ~6-7 Hz -- enough to see parallax, cheap enough to share the CPU with YOLO
-VO_MIN_MATCHES = 40           # below this, pose recovery is too noisy to trust -- report lost instead of guessing
-VO_MIN_PIXEL_MOTION = 2.5     # mean inlier pixel displacement below this = noise, not real motion -- see _process()
-VO_MAX_TRAJECTORY_POINTS = 4000
-VO_STEP_SCALE_M = 0.5         # guessed per-step distance -- see module comment above; NOT a measurement
-VO_CALIBRATION_PATH = "camera_calibration.json"
+GPS_TRACK_POLL_S = 5.0  # how often to check LocationWorker for a fresh fix -- cheap; LocationWorker itself only refreshes every LOCATION_UPDATE_INTERVAL_S
+GPS_TRACK_MAX_POINTS = 4000
 
 
-def _load_camera_intrinsics(resolution: tuple[int, int]) -> tuple[np.ndarray, bool]:
-    """Real intrinsics from camera_calibration.json if calibrate_camera.py
-    has been run against this camera; otherwise a rough pinhole guess from
-    resolution + an assumed ~62-degree horizontal FOV (typical for Pi
-    camera modules). The guess is good enough to get a plausible-looking
-    trajectory but is NOT calibrated -- callers must surface `calibrated`
-    honestly rather than trusting either case the same way.
-    """
-    w, h = resolution
-    path = Path(VO_CALIBRATION_PATH)
-    if path.exists():
-        try:
-            data = json.loads(path.read_text())
-            fx, fy, cx, cy = data["fx"], data["fy"], data["cx"], data["cy"]
-            return np.array([[fx, 0, cx], [0, fy, cy], [0, 0, 1]], dtype=np.float64), True
-        except Exception as e:
-            print(f"[!] camera_calibration.json unreadable ({e}) -- falling back to uncalibrated estimate")
-    assumed_hfov_deg = 62.0
-    fx = fy = (w / 2.0) / math.tan(math.radians(assumed_hfov_deg / 2.0))
-    cx, cy = w / 2.0, h / 2.0
-    return np.array([[fx, 0, cx], [0, fy, cy], [0, 0, 1]], dtype=np.float64), False
+def _gps_delta_meters(origin_lat: float, origin_lon: float, lat: float, lon: float) -> tuple[float, float]:
+    """East/north displacement in meters from (origin_lat, origin_lon) to
+    (lat, lon). Same flat-earth approximation as _latlon_to_meters, just
+    parameterized by a caller-supplied origin instead of the fixed
+    MISSION_ORIGIN_LAT/LON -- GpsTrackWorker's origin is wherever its own
+    first fix happened to be (a real location), not the simulated map's
+    arbitrary origin."""
+    dy_m = (lat - origin_lat) * METERS_PER_DEGREE_LAT
+    dx_m = (lon - origin_lon) * METERS_PER_DEGREE_LAT * math.cos(math.radians(origin_lat))
+    return dx_m, dy_m
 
 
-class VisualOdometryWorker:
-    """Frame-to-frame monocular visual odometry over DetectionWorker's own
-    frames -- see the module comment above for exactly what this is and
-    isn't. Mirrors HazardWorker's shape: a decoupled, slower-cadence thread
-    reading DetectionWorker's shared frame state rather than opening a
-    second capture session (Picamera2 only supports one).
+class GpsTrackWorker:
+    """Real trajectory built from LocationWorker's own WiFi-geolocation
+    fixes over time -- see the module comment above for why this replaced
+    frame-to-frame camera tracking. Each new fix becomes one point,
+    converted to meters relative to the FIRST fix this worker ever saw
+    (that first fix is the plot's origin -- an actual real-world location,
+    not an arbitrary point), via _gps_delta_meters.
 
-    Reads latest_raw_frame_bgr (from _capture_loop, ~STREAM_TARGET_FPS),
-    not latest_frame_bgr (from run(), the YOLO inference loop). Originally
-    this read latest_frame_bgr, back when capture and inference were one
-    loop and both updated at the same rate; after they were split (see
-    _capture_loop's docstring), inference dropped to a variable, often
-    slower cadence under load -- sometimes below this worker's own
-    VO_INTERVAL_S -- so sampling latest_frame_bgr here meant frequently
-    re-reading the SAME frame, i.e. comparing an image against itself,
-    which reports zero motion and misses real small movements between
-    inference updates. latest_raw_frame_bgr updates independently of
-    inference, so a real (even small) movement of the camera is much more
-    likely to actually appear between two consecutive samples here.
+    No detection_worker/camera dependency at all -- unlike the ORB
+    tracker this replaced, this has nothing to do with the camera feed.
     """
 
-    def __init__(self, detection_worker: "DetectionWorker") -> None:
-        self.detection_worker = detection_worker
+    def __init__(self) -> None:
         self.running = True
         self.lock = threading.Lock()
-
-        self.orb = cv2.ORB_create(nfeatures=800)
-        self.matcher = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=False)
-
-        self._prev_gray = None
-        self._prev_kp = None
-        self._prev_des = None
-        self._last_frame_seen = None  # identity check below -- see run()
-
-        self.vo_frame_size = (640, 480)  # (w, h) -- must match _load_camera_intrinsics below; _process resizes every frame to this before feature detection, so a capture-resolution change elsewhere (e.g. a sharper USB webcam) can't silently desync pixel coordinates from K
-        self.K, self.calibrated = _load_camera_intrinsics(self.vo_frame_size)
-
-        # Cumulative pose: position on an arbitrary relative-meters plane,
-        # heading in radians. Both start at zero by definition -- this
-        # mission's own starting point, not any real-world coordinate.
-        self._x_m = 0.0
-        self._y_m = 0.0
-        self._heading_rad = 0.0
-
         self.trajectory: list[dict] = []
-        self.tracking_ok = False
-        self.matched_features = 0
-        self.frames_processed = 0
-        self._last_run_at = 0.0
-        self._append_point(quality="init")
-
-    def _append_point(self, quality: str) -> None:
-        self.trajectory.append({
-            "x_m": round(self._x_m, 2),
-            "y_m": round(self._y_m, 2),
-            "t": time.time(),
-            "quality": quality,
-        })
-        if len(self.trajectory) > VO_MAX_TRAJECTORY_POINTS:
-            self.trajectory = self.trajectory[-VO_MAX_TRAJECTORY_POINTS:]
+        self._origin_lat: float | None = None
+        self._origin_lon: float | None = None
+        self._last_obtained_at: float | None = None
 
     def run(self) -> None:
         while self.running:
-            time.sleep(0.05)
-            now = time.monotonic()
-            if now - self._last_run_at < VO_INTERVAL_S:
-                continue
-            self._last_run_at = now
-
-            if not self.detection_worker.camera_active:
-                # No real camera -- latest_frame_bgr is a static placeholder
-                # (see generate_dummy_frame), and tracking against it is
-                # meaningless drift, not a real signal. Drop the stale
-                # previous-frame reference so it doesn't get matched against
-                # whatever real frame arrives first once a camera connects.
-                self._prev_gray, self._prev_kp, self._prev_des = None, None, None
-                with self.lock:
-                    self.tracking_ok = False
-                    self.matched_features = 0
+            time.sleep(GPS_TRACK_POLL_S)
+            loc = location_worker.status()
+            if not loc["available"]:
                 continue
 
-            with self.detection_worker.lock:
-                frame = self.detection_worker.latest_raw_frame_bgr
-            if frame is None:
-                continue
-            if frame is self._last_frame_seen:
-                continue  # _capture_loop hasn't produced a new one since we last looked -- would just match against itself
-            self._last_frame_seen = frame
-            frame = frame.copy()  # match HazardWorker: predict/compute below must not race the capture loop
+            obtained_at = loc["obtained_at"]
+            if obtained_at == self._last_obtained_at:
+                continue  # same fix already recorded -- LocationWorker hasn't refreshed yet
+            self._last_obtained_at = obtained_at
 
-            # self.K was built for vo_frame_size -- resizing here keeps
-            # feature pixel coordinates consistent with it regardless of
-            # whatever resolution the camera actually captures at (see
-            # vo_frame_size's comment). This also keeps ORB's per-frame
-            # cost fixed even if capture resolution changes elsewhere.
-            if (frame.shape[1], frame.shape[0]) != self.vo_frame_size:
-                frame = cv2.resize(frame, self.vo_frame_size)
-
-            try:
-                self._process(frame)
-            except Exception as e:
-                print(f"[!] Visual odometry error: {e}")
-
-    def _process(self, frame_bgr) -> None:
-        gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
-        kp, des = self.orb.detectAndCompute(gray, None)
-        self.frames_processed += 1
-
-        if self._prev_des is None or des is None or len(kp) < VO_MIN_MATCHES:
-            self._prev_gray, self._prev_kp, self._prev_des = gray, kp, des
             with self.lock:
-                self.tracking_ok = False
-                self.matched_features = 0 if des is None else len(kp)
-            return
-
-        matches = self.matcher.match(self._prev_des, des)
-        matches = sorted(matches, key=lambda m: m.distance)[:200]
-
-        if len(matches) < VO_MIN_MATCHES:
-            self._prev_gray, self._prev_kp, self._prev_des = gray, kp, des
-            with self.lock:
-                self.tracking_ok = False
-                self.matched_features = len(matches)
-            return
-
-        pts_prev = np.float32([self._prev_kp[m.queryIdx].pt for m in matches])
-        pts_cur = np.float32([kp[m.trainIdx].pt for m in matches])
-
-        E, mask = cv2.findEssentialMat(
-            pts_cur, pts_prev, self.K, method=cv2.RANSAC, prob=0.999, threshold=1.0,
-        )
-        self._prev_gray, self._prev_kp, self._prev_des = gray, kp, des
-
-        if E is None or E.shape != (3, 3):
-            with self.lock:
-                self.tracking_ok = False
-                self.matched_features = len(matches)
-            return
-
-        inliers = int(mask.sum()) if mask is not None else 0
-        if inliers < VO_MIN_MATCHES:
-            with self.lock:
-                self.tracking_ok = False
-                self.matched_features = inliers
-            return
-
-        # Gate on actual pixel displacement before trusting a pose at all.
-        # recoverPose's translation is always unit-length -- monocular
-        # scale is fundamentally unrecoverable -- so without this check, a
-        # perfectly stationary camera with nothing but sensor/JPEG noise on
-        # its matched keypoints still "recovers" a confident pose and would
-        # add a full VO_STEP_SCALE_M phantom step every single frame. That
-        # is not the slow, expected drift the module comment describes --
-        # it is meters of fake motion per second sitting still. Below this
-        # threshold, treat it as tracking a static scene: keep the position
-        # exactly where it was rather than integrating noise as movement.
-        inlier_mask = mask.ravel().astype(bool)
-        pixel_disp = float(np.linalg.norm(pts_cur[inlier_mask] - pts_prev[inlier_mask], axis=1).mean())
-        if pixel_disp < VO_MIN_PIXEL_MOTION:
-            with self.lock:
-                self.tracking_ok = True
-                self.matched_features = inliers
-                self._append_point(quality="stationary")
-            return
-
-        _, R, t, _ = cv2.recoverPose(E, pts_cur, pts_prev, self.K, mask=mask)
-
-        # t is a unit-length direction in the camera frame (x-right,
-        # y-down, z-forward); only the ground-plane component (camera
-        # x/z) draws the 2D trail, scaled by the guessed VO_STEP_SCALE_M --
-        # see the module comment on why that scale is not a measurement.
-        dx_cam = float(t[0][0])
-        dz_cam = float(t[2][0])
-        step = math.hypot(dx_cam, dz_cam)
-        if step > 1e-6:
-            dx_cam, dz_cam = dx_cam / step, dz_cam / step
-        dyaw = math.atan2(float(R[0][2]), float(R[2][2]))
-
-        with self.lock:
-            self._heading_rad += dyaw
-            self._x_m += (dx_cam * math.cos(self._heading_rad) + dz_cam * math.sin(self._heading_rad)) * VO_STEP_SCALE_M
-            self._y_m += (dz_cam * math.cos(self._heading_rad) - dx_cam * math.sin(self._heading_rad)) * VO_STEP_SCALE_M
-            self.tracking_ok = True
-            self.matched_features = inliers
-            self._append_point(quality="ok")
+                if self._origin_lat is None:
+                    self._origin_lat, self._origin_lon = loc["lat"], loc["lon"]
+                dx_m, dy_m = _gps_delta_meters(self._origin_lat, self._origin_lon, loc["lat"], loc["lon"])
+                self.trajectory.append({
+                    "x_m": round(dx_m, 2),
+                    "y_m": round(dy_m, 2),
+                    "t": time.time(),
+                    "accuracy_m": loc["accuracy_m"],
+                })
+                if len(self.trajectory) > GPS_TRACK_MAX_POINTS:
+                    self.trajectory = self.trajectory[-GPS_TRACK_MAX_POINTS:]
 
     def status(self) -> dict:
         with self.lock:
+            last = self.trajectory[-1] if self.trajectory else None
             return {
-                "camera_active": self.detection_worker.camera_active if self.detection_worker else False,
-                "tracking_ok": self.tracking_ok,
-                "matched_features": self.matched_features,
-                "frames_processed": self.frames_processed,
-                "calibrated": self.calibrated,
+                "tracking_ok": last is not None,
                 "trajectory_points": len(self.trajectory),
-                "position": {"x_m": round(self._x_m, 2), "y_m": round(self._y_m, 2)},
+                "position": {"x_m": last["x_m"], "y_m": last["y_m"]} if last else {"x_m": 0.0, "y_m": 0.0},
+                "origin_available": self._origin_lat is not None,
+                "origin_lat": self._origin_lat,
+                "origin_lon": self._origin_lon,
+                "last_fix_accuracy_m": last["accuracy_m"] if last else None,
             }
 
     def recent_trajectory(self, limit: int = 500) -> list[dict]:
@@ -1893,6 +1759,7 @@ class LocationWorker:
                 "lon": self.lon,
                 "accuracy_m": self.accuracy_m,
                 "seconds_since_fix": round(time.time() - self.obtained_at, 1),
+                "obtained_at": self.obtained_at,
             }
 
     def stop(self) -> None:
@@ -2006,8 +1873,8 @@ def _haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
 # Global worker instance
 worker = DetectionWorker()
 hazard_worker = HazardWorker(worker)
-vo_worker = VisualOdometryWorker(worker)
 location_worker = LocationWorker()
+gps_track_worker = GpsTrackWorker()
 team_location_store = TeamLocationStore()
 drone_telemetry_store = DroneTelemetryStore()
 
@@ -2058,6 +1925,9 @@ def get_system_telemetry():
 
 from rescue_location import register_location_routes
 register_location_routes(app, location_worker)
+
+from pi_routes import register_slam_routes
+register_slam_routes(app, worker)
 
 ARGUS_DIST_DIR = Path(__file__).parent / "argus_dist"
 
@@ -2543,28 +2413,21 @@ def api_team_location():
     return jsonify({"status": "ok"})
 
 
-@app.route("/api/team/nearest")
-def api_team_nearest():
-    """Distance from the nearest active rescue-team phone to the drone's
-    own real position -- used as a stand-in for "where the identified
-    survivor is": an individual camera detection has no GPS fix of its own
-    (see Alert.lat/lon's comment -- this Pi has no GPS or Pixhawk link to
-    attach one), but the camera doing the detecting is only ever a few
-    meters from whatever it's looking at, so the drone's own real position
-    is a reasonable proxy at the scale a rescue team walks at.
+def _survivor_and_nearest_responder() -> tuple[dict | None, str | None, list]:
+    """Shared by /api/team/nearest and /api/team/route: the drone's own
+    real position (survivor stand-in -- an individual camera detection
+    has no GPS fix of its own, see Alert.lat/lon's comment, but the
+    camera doing the detecting is only ever a few meters from whatever
+    it's looking at) and the nearest actively-reporting rescue-team
+    phone. Prefers drone_telemetry_store (a real LoRa-delivered fix, see
+    /api/mesh/telemetry) and falls back to location_worker's in-process
+    reading only if no telemetry frame has been heard yet -- see
+    api_team_nearest's own history for why both exist.
 
-    Prefers drone_telemetry_store -- the position as it actually arrived
-    over the LoRa link (see /api/mesh/telemetry) -- and falls back to
-    location_worker's in-process reading only if no telemetry frame has
-    been heard yet. On today's single-Pi bench setup those two numbers
-    are the same value anyway (see LocationWorker.run()); once the drone
-    is flying with its own Pi, only the telemetry path will ever have
-    anything to report. `position_source` says honestly which one
-    answered so nothing downstream has to guess.
-
-    Honestly unavailable, not silently wrong, when either side of that
-    distance isn't real: no drone position yet, or no rescue-team phone
-    currently reporting.
+    Returns (info, None, members) on success or (None, reason, members)
+    when either side isn't real yet -- members is always the current
+    list either way, so callers never need a second fetch just to fill
+    in an honest "unavailable" response body.
     """
     members = team_location_store.active_members()
 
@@ -2575,9 +2438,40 @@ def api_team_nearest():
     else:
         loc = location_worker.status()
         if not loc["available"]:
-            return jsonify({"available": False, "reason": "no drone position yet (no LoRa telemetry heard, no local GPS fix)", "members": members})
+            return None, "no drone position yet (no LoRa telemetry heard, no local GPS fix)", members
         drone_lat, drone_lon = loc["lat"], loc["lon"]
         position_source = "local"
+
+    if not members:
+        return None, "no rescue-team phone reporting location", members
+
+    for m in members:
+        m["distance_m"] = round(_haversine_m(drone_lat, drone_lon, m["lat"], m["lon"]), 1)
+    members.sort(key=lambda m: m["distance_m"])
+
+    return {
+        "drone_lat": drone_lat,
+        "drone_lon": drone_lon,
+        "position_source": position_source,
+        "nearest": members[0],
+    }, None, members
+
+
+@app.route("/api/team/nearest")
+def api_team_nearest():
+    """Straight-line distance from the nearest active rescue-team phone to
+    the drone's own real position -- see _survivor_and_nearest_responder
+    for what that position is and isn't. `position_source` says honestly
+    which path answered (LoRa telemetry vs. local reading) so nothing
+    downstream has to guess. Honestly unavailable, not silently wrong,
+    when either side of that distance isn't real.
+    """
+    info, reason, members = _survivor_and_nearest_responder()
+    if info is None:
+        return jsonify({"available": False, "reason": reason, "members": members})
+
+    drone_lat, drone_lon = info["drone_lat"], info["drone_lon"]
+    nearest = info["nearest"]
 
     # Always read LocationWorker's own accuracy_m for context, regardless
     # of which path answered above: it describes the WiFi-geolocation
@@ -2586,14 +2480,6 @@ def api_team_nearest():
     # not something that literally rode over the wire. Shown so a jumpy
     # distance reading is legible as sensor noise, not treated as exact.
     survivor_accuracy_m = location_worker.status().get("accuracy_m")
-
-    if not members:
-        return jsonify({"available": False, "reason": "no rescue-team phone reporting location", "members": members})
-
-    for m in members:
-        m["distance_m"] = round(_haversine_m(drone_lat, drone_lon, m["lat"], m["lon"]), 1)
-    members.sort(key=lambda m: m["distance_m"])
-    nearest = members[0]
 
     # Both points projected into the same simulated map frame the web
     # dashboard's Mission Map already draws the drone marker in (see
@@ -2615,7 +2501,7 @@ def api_team_nearest():
         "member_id": nearest["member_id"],
         "seconds_since_update": nearest["seconds_since_update"],
         "survivor_accuracy_m": survivor_accuracy_m,
-        "position_source": position_source,
+        "position_source": info["position_source"],
         "survivor_lat": drone_lat,
         "survivor_lon": drone_lon,
         "survivor_x_m": _clamp(survivor_x_m),
@@ -2628,25 +2514,152 @@ def api_team_nearest():
     })
 
 
+DIRECTIONS_CACHE_TTL_S = 25.0
+"""Throttle for the Google Directions API specifically -- unlike
+Geolocation, Directions billing has a much smaller free tier and a real
+per-call cost beyond it. Both the web dashboard and the mobile app poll
+/api/team/route independently and repeatedly, so without a cache they'd
+multiply real Google API calls for a walking route that can't have
+changed anyway between two polls a couple seconds apart -- the underlying
+positions only update every 15-60s regardless (phone GPS / WiFi-geo)."""
+
+_directions_cache = {"key": None, "at": 0.0, "result": None}
+
+
+def _fetch_walking_route(origin_lat: float, origin_lon: float, dest_lat: float, dest_lon: float) -> dict:
+    """Real walking route via Google's Routes API (computeRoutes), cached
+    briefly (see DIRECTIONS_CACHE_TTL_S). Deliberately the newer Routes
+    API, not the legacy Directions API: live-testing this against the
+    project's own API key came back "You're calling a legacy API, which
+    is not enabled for your project... switch to the Routes API" --
+    Google's own guidance, taken at first contact rather than building on
+    an endpoint it's already steering people away from.
+
+    Returns an honest {"available": False, "reason": ...} on any failure
+    -- a wrong or silently-stale route is worse than none for a rescue
+    tool, same principle as everywhere else real position data is
+    handled in this file. `reason` surfaces Google's own error message
+    on a non-2xx response, since that almost always means Routes API
+    isn't enabled yet or billing isn't linked -- the operator needs that
+    detail, not a generic failure.
+    """
+    cache_key = (round(origin_lat, 5), round(origin_lon, 5), round(dest_lat, 5), round(dest_lon, 5))
+    now = time.time()
+    if _directions_cache["key"] == cache_key and (now - _directions_cache["at"]) < DIRECTIONS_CACHE_TTL_S:
+        return _directions_cache["result"]
+
+    if not GOOGLE_GEOLOCATION_API_KEY:
+        result = {"available": False, "reason": "Google API key is not configured"}
+    else:
+        try:
+            res = requests.post(
+                "https://routes.googleapis.com/directions/v2:computeRoutes",
+                json={
+                    "origin": {"location": {"latLng": {"latitude": origin_lat, "longitude": origin_lon}}},
+                    "destination": {"location": {"latLng": {"latitude": dest_lat, "longitude": dest_lon}}},
+                    "travelMode": "WALK",
+                    "polylineEncoding": "ENCODED_POLYLINE",
+                },
+                headers={
+                    "Content-Type": "application/json",
+                    "X-Goog-Api-Key": GOOGLE_GEOLOCATION_API_KEY,
+                    "X-Goog-FieldMask": "routes.distanceMeters,routes.duration,routes.polyline.encodedPolyline",
+                },
+                timeout=8.0,
+            )
+            data = res.json()
+            if res.status_code == 200 and data.get("routes"):
+                route = data["routes"][0]
+                # duration arrives as e.g. "823s" (a string, not seconds
+                # directly) -- see computeRoutes' Duration field format.
+                duration_s = float(str(route.get("duration", "0s")).rstrip("s") or 0)
+                result = {
+                    "available": True,
+                    "polyline": route["polyline"]["encodedPolyline"],
+                    "distance_m": route["distanceMeters"],
+                    "duration_s": duration_s,
+                }
+            elif res.status_code == 200:
+                result = {"available": False, "reason": "no walking route found between these points"}
+            else:
+                error_message = data.get("error", {}).get("message", f"HTTP {res.status_code}")
+                result = {
+                    "available": False,
+                    "reason": f"Google Routes API rejected the request ({error_message}) -- check it's enabled and billing is linked on this API key's project",
+                }
+        except Exception as e:
+            result = {"available": False, "reason": f"could not reach Google Routes API ({type(e).__name__})"}
+
+    _directions_cache["key"] = cache_key
+    _directions_cache["at"] = now
+    _directions_cache["result"] = result
+    return result
+
+
+@app.route("/api/team/route")
+def api_team_route():
+    """Real walking route between the drone's own position (survivor
+    stand-in, see _survivor_and_nearest_responder) and the nearest active
+    rescue-team phone, via Google's Directions API -- an actual route
+    along real streets/paths, not the straight-line distance
+    /api/team/nearest already gives. Cached briefly, see
+    _fetch_walking_route; shares the same honesty contract as every
+    other real-position route in this file."""
+    info, reason, _members = _survivor_and_nearest_responder()
+    if info is None:
+        return jsonify({"available": False, "reason": reason})
+
+    nearest = info["nearest"]
+    route = _fetch_walking_route(info["drone_lat"], info["drone_lon"], nearest["lat"], nearest["lon"])
+    if not route["available"]:
+        return jsonify(route)
+
+    return jsonify({
+        "available": True,
+        "polyline": route["polyline"],
+        "distance_m": route["distance_m"],
+        "duration_s": route["duration_s"],
+        "survivor_lat": info["drone_lat"],
+        "survivor_lon": info["drone_lon"],
+        "responder_lat": nearest["lat"],
+        "responder_lon": nearest["lon"],
+        "member_name": nearest["name"],
+    })
+
+
+@app.route("/api/config/maps-key")
+def api_config_maps_key():
+    """The same Google API key already used for WiFi-geolocation and
+    Directions, exposed so the web dashboard can load the Maps JavaScript
+    SDK client-side. Google Maps JS keys are meant to reach the browser --
+    restrict by HTTP referrer in Google Cloud Console, not by trying to
+    keep this secret (the map tiles themselves need it client-side, so
+    that's not achievable anyway)."""
+    return jsonify({"key": GOOGLE_GEOLOCATION_API_KEY or None})
+
+
 @app.route("/api/vo/status")
 def api_vo_status():
-    """Visual-odometry tracking health. See VisualOdometryWorker's module
-    comment for exactly what this is (frame-to-frame monocular odometry,
-    not full SLAM: no loop closure, no metric scale, drifts over time)."""
-    return jsonify(vo_worker.status())
+    """GPS trajectory tracking health -- route path kept as /api/vo/ for
+    compatibility with the existing dashboard, but see GpsTrackWorker's
+    module comment: this is real position samples now, not camera-derived
+    frame-to-frame odometry (still not full SLAM either way: no loop
+    closure, no map)."""
+    return jsonify(gps_track_worker.status())
 
 
 @app.route("/api/vo/trajectory")
 def api_vo_trajectory():
-    """Recent camera-derived trajectory points, in relative meters from
-    wherever this process started -- NOT GPS-referenced and NOT the same
-    thing as /api/mission/position's simulated lawnmower track. See
-    VisualOdometryWorker's module comment before treating this as a
-    metric map."""
+    """Recent GPS-derived trajectory points, in meters relative to this
+    worker's first real fix (an actual location, not an arbitrary point)
+    -- NOT the same thing as /api/mission/position's simulated lawnmower
+    track. See GpsTrackWorker's module comment before treating this as a
+    precise metric map: each point still carries WiFi-geolocation's own
+    ~10-20m error."""
     limit = request.args.get("limit", default=500, type=int)
     return jsonify({
-        "points": vo_worker.recent_trajectory(limit=limit),
-        **vo_worker.status(),
+        "points": gps_track_worker.recent_trajectory(limit=limit),
+        **gps_track_worker.status(),
     })
 
 
@@ -2715,9 +2728,9 @@ def main():
     hazard_thread = threading.Thread(target=hazard_worker.run, daemon=True)
     hazard_thread.start()
 
-    # Replaced by rescue-team/drone map; do not spend CPU on unused ORB tracking.
-    if os.environ.get("ARGUS_ENABLE_ODOMETRY") == "1":
-        threading.Thread(target=vo_worker.run, daemon=True).start()
+    # Real GPS trajectory, shown on the Dashboard alongside the rescue-
+    # team/drone map -- see GpsTrackWorker's module comment.
+    threading.Thread(target=gps_track_worker.run, daemon=True).start()
     threading.Thread(target=sample_system_telemetry, daemon=True).start()
 
     location_thread = threading.Thread(target=location_worker.run, daemon=True)
@@ -2743,7 +2756,7 @@ def main():
     if drone_link is not None:
         print(f" LoRa uplink:  direct-SPI RA-02 (SPI{drone_link.spi_bus}.{drone_link.spi_device})")
     print(f" Hazard model: {'loaded' if hazard_worker.model is not None else 'NOT LOADED'}")
-    print(f" Visual odometry: {'calibrated' if vo_worker.calibrated else 'UNCALIBRATED (approximate intrinsics)'}")
+    print(f" GPS trajectory: sampling LocationWorker every {GPS_TRACK_POLL_S:.0f}s")
     print(f"=======================================================\n")
 
     try:
@@ -2753,7 +2766,7 @@ def main():
     finally:
         worker.stop()
         hazard_worker.stop()
-        vo_worker.stop()
+        gps_track_worker.stop()
         if drone_link is not None:
             drone_link.stop()
 

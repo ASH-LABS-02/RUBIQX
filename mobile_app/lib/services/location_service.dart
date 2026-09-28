@@ -97,6 +97,8 @@ class LocationService extends ChangeNotifier {
               'name': settings.rescuerName,
               'lat': position.latitude,
               'lon': position.longitude,
+              'accuracy': position.accuracy,
+              'timestamp': position.timestamp.millisecondsSinceEpoch,
             }),
           )
           .timeout(const Duration(seconds: 8));

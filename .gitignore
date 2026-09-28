@@ -33,3 +33,10 @@ runs/
 # OS files
 .DS_Store
 Thumbs.db
+
+# SLAM live frames, stage folders, backups & deploy archives
+.slam-live/
+.slam-stage-*/
+_archive_*/
+*.prev_*
+*.tar.gz

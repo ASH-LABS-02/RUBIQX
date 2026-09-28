@@ -58,7 +58,7 @@ class TeamLocation:
                 'reason': None if -5 <= age <= 30 else 'Phone GPS is stale'}
 
 
-def register_location_routes(app, location_worker):
+def register_location_routes(app, location_worker, phone_store=None):
     from flask import request, jsonify
     team = TeamLocation()
 
@@ -86,12 +86,26 @@ def register_location_routes(app, location_worker):
                      'timestamp': (time.time() - age) * 1000, 'age_seconds': age,
                      'reason': None if age <= 90 else 'Drone Wi-Fi location is stale'}
         phone = team.status()
+        members = []
+        if phone_store is not None:
+            for member in phone_store.active_members():
+                timestamp = member.get('fix_timestamp')
+                age = time.time() - timestamp / 1000 if number(timestamp) else member['seconds_since_update']
+                members.append({'available': -5 <= age <= 30, 'latitude': member['lat'], 'longitude': member['lon'],
+                                'accuracy': member.get('accuracy'), 'age_seconds': age,
+                                'timestamp': timestamp, 'source': 'phone_location',
+                                'member_id': member['member_id'], 'name': member['name'],
+                                'fix_age_known': number(timestamp),
+                                'reason': None if age <= 30 else 'Phone location is stale'})
+            fresh = [m for m in members if m['available']]
+            if fresh:
+                phone = min(fresh, key=lambda m: distance_m(drone, m)) if drone['available'] else fresh[0]
         distance = None
         uncertainty = None
         if drone['available'] and phone['available']:
             distance = round(distance_m(drone, phone), 1)
-            if number(drone['accuracy']):
+            if number(drone['accuracy']) and number(phone['accuracy']):
                 uncertainty = drone['accuracy'] + phone['accuracy']
-        return jsonify({'drone': drone, 'team': phone, 'distance_m': distance,
+        return jsonify({'drone': drone, 'team': phone, 'members': members, 'distance_m': distance,
                         'combined_accuracy_m': uncertainty, 'estimated': True,
                         'distance_kind': 'straight_line_surface', 'server_time': time.time() * 1000})
